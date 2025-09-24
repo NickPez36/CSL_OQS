@@ -10,10 +10,7 @@
         body {
             font-family: 'Inter', sans-serif;
         }
-        .table-container {
-            max-height: 70vh;
-            overflow-y: auto;
-        }
+        /* The .table-container class is no longer needed as styles are applied directly */
         thead th {
             position: sticky;
             top: 0;
@@ -73,7 +70,12 @@
                      <h2 id="view-title" class="text-2xl font-bold text-white text-center md:text-left"></h2>
                     <input type="text" id="searchInput" placeholder="Search results..." class="w-full md:w-80 px-3 py-2 border border-gray-600 bg-gray-700 text-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
                 </div>
-                <div id="table-container" class="border border-gray-700 rounded-lg">
+                <!-- Color Key Moved Here -->
+                <p class="text-sm text-gray-400 mb-4">
+                    <span class="text-green-400 font-semibold">Green Highlight</span> = Quota Place secured. 
+                    <span class="text-yellow-400 font-semibold">Yellow Highlight</span> = Skipped (athlete already secured a Kayak quota).
+                </p>
+                <div id="table-container" class="border border-gray-700 rounded-lg max-h-[70vh] overflow-auto">
                     <table class="min-w-full divide-y divide-gray-700">
                         <thead class="bg-gray-800" id="table-head"></thead>
                         <tbody class="bg-gray-900 divide-y divide-gray-700" id="table-body"></tbody>
@@ -81,15 +83,13 @@
                 </div>
                 <p class="text-sm text-gray-400 mt-4">
                     Showing <span id="rowCount" class="font-semibold">0</span> athletes. 
-                    <span class="text-green-400">Green</span> = Quota Place secured. 
-                    <span class="text-yellow-400">Yellow</span> = Skipped (athlete already secured a Kayak quota).
                 </p>
             </div>
 
         </main>
 
         <footer class="text-center text-gray-500 mt-8">
-            <p>Built with Gemini</p>
+            <p>Canoe Slalom Olympic Qualification System Modeling</p>
         </footer>
     </div>
 
@@ -183,7 +183,13 @@
                     };
                 });
                 
-                return calculatedData.sort((a, b) => b['Overall OQS Points'] - a['Overall OQS Points']);
+                // Sort and then add rank
+                const sortedData = calculatedData.sort((a, b) => b['Overall OQS Points'] - a['Overall OQS Points']);
+                
+                return sortedData.map((athlete, index) => ({
+                    'Rank': index + 1,
+                    ...athlete
+                }));
             }
 
             function precomputeKayakQualifiers() {
@@ -259,6 +265,9 @@
                         td.textContent = row[header];
                         if (header === 'Athlete Name') {
                             td.classList.add('font-medium', 'text-white');
+                        }
+                        if (header === 'Rank') {
+                             td.classList.add('font-bold', 'text-white');
                         }
                         if (header === 'Nation' && currentQualifyingAthletes.has(row['Athlete Name'])) {
                             td.classList.add('bg-green-900', 'text-green-200', 'font-bold');
@@ -337,7 +346,7 @@
                 if (processedData.length > 0) {
                     currentHeaders = Object.keys(processedData[0]);
                 } else {
-                    currentHeaders = ['Athlete Name', 'Nation', 'Overall OQS Points', 'Average Rank', 'OQS Race 1', 'OQS Race 2', 'OQS Race 3', 'OQS Race 4', 'OQS Race 5'];
+                    currentHeaders = ['Rank', 'Athlete Name', 'Nation', 'Overall OQS Points', 'Average Rank', 'OQS Race 1', 'OQS Race 2', 'OQS Race 3', 'OQS Race 4', 'OQS Race 5'];
                 }
                 sortState = { 'Overall OQS Points': 'desc' };
 
@@ -382,4 +391,5 @@
     </script>
 </body>
 </html>
+
 
