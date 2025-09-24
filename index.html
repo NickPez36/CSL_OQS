@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canoe Slalom OQS Modeler</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .table-container {
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+        thead th {
+            position: sticky;
+            top: 0;
+            background-color: #f9fafb; /* bg-gray-50 */
+            z-index: 10;
+        }
+        .sortable {
+            cursor: pointer;
+            position: relative;
+        }
+        .sortable::after {
+            content: '↕';
+            position: absolute;
+            right: 1rem;
+            opacity: 0.5;
+        }
+        .class-tile {
+            transition: all 0.2s ease-in-out;
+            opacity: 0.7;
+            transform: scale(0.95);
+        }
+        .class-tile:hover {
+            opacity: 1;
+            transform: scale(1);
+        }
+        .class-tile.active {
+            opacity: 1;
+            transform: scale(1);
+            box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.8), 0 4px 6px rgba(0, 0, 0, 0.1);
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="bg-white rounded-lg shadow p-6 mb-8">
+            <h1 class="text-3xl font-bold text-gray-900">Canoe Slalom Olympic Qualification System Modeler</h1>
+            <p class="mt-2 text-gray-600">Analyze and understand the new Olympic qualification system. Upload a CSV file or use the initially loaded data to begin.</p>
+        </header>
+
+        <main class="bg-white rounded-lg shadow p-6">
+            <!-- Controls: File Upload -->
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 border-b pb-6">
+                <div>
+                    <label for="csvFileInput" class="block text-sm font-medium text-gray-700 mb-1">Upload New Data</label>
+                    <input type="file" id="csvFileInput" accept=".csv" class="block w-full text-sm text-gray-500
+                        file:mr-4 file:py-2 file:px-4
+                        file:rounded-full file:border-0
+                        file:text-sm file:font-semibold
+                        file:bg-blue-50 file:text-blue-700
+                        hover:file:bg-blue-100 cursor-pointer"/>
+                </div>
+            </div>
+
+            <!-- Class Selection -->
+            <div id="class-selection" class="hidden mb-6">
+                 <h2 class="text-xl font-semibold text-gray-800 mb-4">Select a Class to Analyze</h2>
+                 <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                     <button data-class="K1M" class="class-tile bg-blue-500 text-white py-4 px-4 rounded-lg text-lg">K1M</button>
+                     <button data-class="K1W" class="class-tile bg-pink-500 text-white py-4 px-4 rounded-lg text-lg">K1W</button>
+                     <button data-class="C1M" class="class-tile bg-green-500 text-white py-4 px-4 rounded-lg text-lg">C1M</button>
+                     <button data-class="C1W" class="class-tile bg-purple-500 text-white py-4 px-4 rounded-lg text-lg">C1W</button>
+                 </div>
+            </div>
+            
+            <!-- Data View -->
+            <div id="data-view" class="hidden">
+                <div class="flex flex-col md:flex-row items-center justify-between gap-4 mb-4">
+                     <h2 id="view-title" class="text-2xl font-bold text-gray-900 text-center md:text-left"></h2>
+                    <input type="text" id="searchInput" placeholder="Search results..." class="w-full md:w-80 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div id="table-container" class="table-container border rounded-lg">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50" id="table-head"></thead>
+                        <tbody class="bg-white divide-y divide-gray-200" id="table-body"></tbody>
+                    </table>
+                </div>
+                <p class="text-sm text-gray-500 mt-4">
+                    Showing <span id="rowCount" class="font-semibold">0</span> athletes. Nations highlighted in green represent an Olympic Quota Place.
+                </p>
+            </div>
+
+        </main>
+
+        <footer class="text-center text-gray-500 mt-8">
+            <p>Built with Gemini</p>
+        </footer>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const fileInput = document.getElementById('csvFileInput');
+            const searchInput = document.getElementById('searchInput');
+            const tableHead = document.getElementById('table-head');
+            const tableBody = document.getElementById('table-body');
+            const rowCountEl = document.getElementById('rowCount');
+            const classSelectionView = document.getElementById('class-selection');
+            const dataView = document.getElementById('data-view');
+            const viewTitle = document.getElementById('view-title');
+
+            let rawData = [];
+            let processedData = [];
+            let currentHeaders = [];
+            let currentQualifyingNations = new Set();
+            let sortState = {};
+
+            const initialCsvData = `Competition UID,Year,Location,Competition,Class,Overall Rank,Athlete Name,Nation,OQS Points
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,5,Tereza Fiserova,CZE,920
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,1,Jessica Fox,AUS,1000
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,8,Stefanie Horn,ITA,860
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,10,Eliska Mintalova,SVK,820
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,4,Mallory Franklin,GBR,940
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,3,Camille Prigent,FRA,960
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,7,Ricarda Funk,GER,880
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,24,Martina Wegman,NED,540
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,2,Elena Lilik,GER,980
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,6,Luuka Jones,NZL,900
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,9,Corinna Kuhnle,AUT,840
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,15,Ana Satila,BRA,720
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,11,Eva Tercelj,SLO,800
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,13,Viktoriia US,UKR,760
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,12,Antonie Galuskova,CZE,780
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,14,Maialen Chourraut,ESP,740
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,17,Marjorie Delassus,FRA,680
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,16,Naemi Braendle,SUI,700
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,18,Klaudia Zwolinska,POL,660
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,21,Ajda Novak,SLO,600
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,19,Amalie Hilgertova,CZE,640
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,20,Lena Teunissen,NED,620
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,36,Zuzana Pankova,SVK,300
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,23,Viktoria Wolffhardt,AUT,560
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,25,Eva Alina Hocevar,SLO,520
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,22,Miren Lazkano,ESP,580
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,28,Olatz Arregui,ESP,460
+2c022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,35,Alsu Minazova,RCF,320
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,26,Natalia Pacierpnik,POL,500
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,31,Noemie Fox,AUS,400
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,27,Jasmin Schornberg,GER,480
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,32,Lois Betteridge,CAN,380
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,34,Katerina Bekova,CZE,340
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,33,Anna Satila,BRA,360
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,30,Chiara Sabattini,ITA,420
+2022 Prague World Cup 1,2022,Prague,World Cup 1,K1W,29,Florence Duff,IRL,440
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,1,Benjamin SAVSEK,SLO,1000
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,2,Matej BENUS,SVK,980
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,3,Luka BOZIC,SLO,960
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,4,Miquel TRAVE,ESP,940
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,5,Nicolas GESTIN,FRA,920
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,6,Adam BURGESS,GBR,900
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,7,Jules BERNARDET,FRA,880
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,8,Raffaello Ivaldi,ITA,860
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,9,Jiri PRSKAVEC,CZE,840
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,10,Matija MARINIC,CRO,820
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,11,Thomas KOECHLIN,SUI,800
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,12,Zachary LOKKEN,USA,780
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,13,Vojtech HEGER,CZE,760
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,14,Casey EICHFELD,USA,740
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,15,Grzegorz HEDWIG,POL,720
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,16,Liam JEGU,IRL,700
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,17,Ander ELOSEGI,ESP,680
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,18,Jake COCHRANE,IRL,660
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,24,Szymon NOWOBILSKI,POL,540
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,55,Tristan CARTER,AUS,20
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,42,Markel IMAZ,ESP,180
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,44,Terence SARAMANDIF,MRI,140
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,41,Oliver PUchner,NZL,200
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,29,Jean Pierre BOURHIS,SEN,440
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,20,Kurts ROZENTALS,GBR,620
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,56,Nathaniel FRANCIS,USA,20
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,46,Peter Linksted,CAN,100
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,30,Lennard TUCHSCHERER,GER,420
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,35,Alex BALDONI,CAN,320
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,34,Martin SRBOTNIK,SLO,340
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,22,Timo TRUMMER,GER,580
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,19,Ryan WESTLEY,GBR,640
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,40,Takuya HANEDA,JPN,220
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,26,Paolo CECCHIN,ITA,500
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,32,Yohann SENECHault,FRA,380
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,21,Roberto COLZINGARI,ITA,600
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,27,Lukas PRYLINDA,SVK,480
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,25,Kaylen BASSETT,AUS,520
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,28,James HEGGE,USA,460
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,23,Ziga Lin HOCEVAR,SLO,560
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,37,Flavio SOUSA,BRA,280
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,33,Michal WIERcioch,POL,360
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,39,Adrien FISER,FRA,240
+2024 Seu World Cup 5,2024,Seu,World Cup 5,C1M,38,Siam JAFFRY,MAS,260`;
+
+            function parseCSV(text) {
+                const lines = text.trim().split('\n');
+                const fileHeaders = lines.shift().split(',').map(h => h.trim());
+                const data = lines.map(line => {
+                    const values = line.split(',');
+                    let obj = {};
+                    fileHeaders.forEach((header, i) => {
+                        obj[header] = values[i] ? values[i].trim() : '';
+                    });
+                    return obj;
+                });
+                return data;
+            }
+
+            function calculateOQSData(classFilter) {
+                const athletes = {};
+                rawData.filter(row => row.Class === classFilter).forEach(row => {
+                    const athleteName = row['Athlete Name'];
+                    if (!athletes[athleteName]) {
+                        athletes[athleteName] = {
+                            nation: row.Nation,
+                            results: []
+                        };
+                    }
+                    athletes[athleteName].results.push(row);
+                });
+
+                const calculatedData = Object.entries(athletes).map(([name, data]) => {
+                    const sortedResults = data.results.sort((a, b) => parseInt(b['OQS Points'], 10) - parseInt(a['OQS Points'], 10));
+                    const top5Results = sortedResults.slice(0, 5);
+                    
+                    const overallPoints = top5Results.reduce((sum, result) => sum + parseInt(result['OQS Points'], 10), 0);
+                    
+                    // Append rank to competition UID
+                    const raceUIDsWithRank = top5Results.map(r => `${r['Competition UID']} (Rank ${r['Overall Rank']})`);
+                    while (raceUIDsWithRank.length < 5) {
+                        raceUIDsWithRank.push('-');
+                    }
+
+                    return {
+                        'Athlete Name': name,
+                        'Nation': data.nation,
+                        'Overall OQS Points': overallPoints,
+                        'OQS Race 1': raceUIDsWithRank[0],
+                        'OQS Race 2': raceUIDsWithRank[1],
+                        'OQS Race 3': raceUIDsWithRank[2],
+                        'OQS Race 4': raceUIDsWithRank[3],
+                        'OQS Race 5': raceUIDsWithRank[4],
+                    };
+                });
+                
+                return calculatedData.sort((a, b) => b['Overall OQS Points'] - a['Overall OQS Points']);
+            }
+
+            function getQualifyingNations(data, quotaLimit) {
+                const nations = new Set();
+                for (const athlete of data) {
+                    if (nations.size < quotaLimit) {
+                        nations.add(athlete.Nation);
+                    } else {
+                        break; 
+                    }
+                }
+                return nations;
+            }
+
+            function renderTable(dataToRender) {
+                tableBody.innerHTML = ''; 
+
+                if (dataToRender.length === 0) {
+                    tableBody.innerHTML = `<tr><td colspan="${currentHeaders.length}" class="p-8 text-center text-gray-500">No matching data found.</td></tr>`;
+                    rowCountEl.textContent = 0;
+                    return;
+                }
+
+                dataToRender.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-gray-50";
+                    currentHeaders.forEach(header => {
+                        const td = document.createElement('td');
+                        td.className = "px-6 py-4 whitespace-nowrap text-sm";
+                        td.textContent = row[header];
+                        if (header === 'Athlete Name') {
+                            td.classList.add('font-medium', 'text-gray-900');
+                        }
+                        // Highlight qualifying nations
+                        if (header === 'Nation' && currentQualifyingNations.has(row[header])) {
+                            td.classList.add('bg-green-100', 'text-green-800', 'font-bold', 'rounded-md');
+                        }
+                        tr.appendChild(td);
+                    });
+                    tableBody.appendChild(tr);
+                });
+                rowCountEl.textContent = dataToRender.length;
+            }
+
+            function renderHeaders() {
+                tableHead.innerHTML = '';
+                const tr = document.createElement('tr');
+                currentHeaders.forEach((header) => {
+                    const th = document.createElement('th');
+                    th.scope = 'col';
+                    th.className = 'sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider';
+                    th.textContent = header;
+                    th.dataset.header = header;
+                    th.addEventListener('click', () => handleSort(header));
+                    tr.appendChild(th);
+                });
+                tableHead.appendChild(tr);
+            }
+            
+            function handleSort(columnHeader) {
+                const currentDirection = sortState[columnHeader];
+                const newDirection = currentDirection === 'asc' ? 'desc' : 'asc';
+                
+                sortState = { [columnHeader]: newDirection };
+
+                processedData.sort((a, b) => {
+                    const valA = a[columnHeader];
+                    const valB = b[columnHeader];
+                    
+                    const isNumeric = !isNaN(valA) && !isNaN(valB);
+
+                    if (isNumeric) {
+                        return newDirection === 'asc' ? valA - valB : valB - valA;
+                    } else {
+                        return newDirection === 'asc' 
+                            ? String(valA).localeCompare(String(valB))
+                            : String(valB).localeCompare(String(valA));
+                    }
+                });
+                filterAndRender();
+            }
+
+            function filterAndRender() {
+                const searchTerm = searchInput.value.toLowerCase();
+                if (!searchTerm) {
+                    renderTable(processedData);
+                    return;
+                }
+                const filteredData = processedData.filter(row => {
+                    return Object.values(row).some(value =>
+                        String(value).toLowerCase().includes(searchTerm)
+                    );
+                });
+                renderTable(filteredData);
+            }
+
+            function showDataView(selectedClass) {
+                viewTitle.textContent = `${selectedClass} - OQS Ranking (Best 5 Results)`;
+                processedData = calculateOQSData(selectedClass);
+
+                const quotaLimit = ['K1M', 'K1W'].includes(selectedClass) ? 6 : 10;
+                currentQualifyingNations = getQualifyingNations(processedData, quotaLimit);
+                
+                if (processedData.length > 0) {
+                    currentHeaders = Object.keys(processedData[0]);
+                } else {
+                    currentHeaders = ['Athlete Name', 'Nation', 'Overall OQS Points', 'OQS Race 1', 'OQS Race 2', 'OQS Race 3', 'OQS Race 4', 'OQS Race 5'];
+                }
+                sortState = { 'Overall OQS Points': 'desc' }; // Default sort
+
+                renderHeaders();
+                filterAndRender();
+
+                dataView.classList.remove('hidden');
+
+                // Update active button style
+                document.querySelectorAll('.class-tile').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.class === selectedClass);
+                });
+            }
+
+            function loadData(csvText) {
+                rawData = parseCSV(csvText);
+                classSelectionView.classList.remove('hidden');
+                dataView.classList.add('hidden'); // Hide table on new file load
+                 // Reset active state
+                document.querySelectorAll('.class-tile').forEach(btn => btn.classList.remove('active'));
+            }
+
+            classSelectionView.addEventListener('click', (e) => {
+                if(e.target.matches('button.class-tile')) {
+                    const selectedClass = e.target.dataset.class;
+                    showDataView(selectedClass);
+                }
+            });
+
+            fileInput.addEventListener('change', (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        loadData(e.target.result);
+                    };
+                    reader.readAsText(file);
+                }
+            });
+
+            searchInput.addEventListener('input', filterAndRender);
+
+            // Initial load
+            loadData(initialCsvData);
+        });
+    </script>
+</body>
+</html>
+
