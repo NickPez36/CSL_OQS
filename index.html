@@ -56,11 +56,13 @@
             <!-- Class Selection -->
             <div id="class-selection" class="hidden mb-6">
                  <h2 class="text-xl font-semibold text-white mb-4">Select a Class to Analyze</h2>
-                 <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                 <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
                      <button data-class="K1M" class="class-tile bg-blue-600 hover:bg-blue-500 text-white py-4 px-4 rounded-lg text-lg">K1M</button>
                      <button data-class="K1W" class="class-tile bg-pink-600 hover:bg-pink-500 text-white py-4 px-4 rounded-lg text-lg">K1W</button>
                      <button data-class="C1M" class="class-tile bg-green-600 hover:bg-green-500 text-white py-4 px-4 rounded-lg text-lg">C1M</button>
                      <button data-class="C1W" class="class-tile bg-purple-600 hover:bg-purple-500 text-white py-4 px-4 rounded-lg text-lg">C1W</button>
+                     <button data-class="MCSLX" class="class-tile bg-orange-600 hover:bg-orange-500 text-white py-4 px-4 rounded-lg text-lg">MCSLX</button>
+                     <button data-class="WCSLX" class="class-tile bg-teal-600 hover:bg-teal-500 text-white py-4 px-4 rounded-lg text-lg">WCSLX</button>
                  </div>
             </div>
             
@@ -73,7 +75,7 @@
                 <!-- Color Key Moved Here -->
                 <p class="text-sm text-gray-400 mb-4">
                     <span class="text-green-400 font-semibold">Green Highlight</span> = Quota Place secured. 
-                    <span class="text-yellow-400 font-semibold">Yellow Highlight</span> = Skipped (athlete already secured a Kayak quota).
+                    <span class="text-yellow-400 font-semibold">Yellow Highlight</span> = Skipped (athlete already secured a quota in another class).
                 </p>
                 <div id="table-container" class="border border-gray-700 rounded-lg max-h-[70vh] overflow-auto">
                     <table class="min-w-full divide-y divide-gray-700">
@@ -104,7 +106,6 @@
             const viewTitle = document.getElementById('view-title');
             const headerSubtitle = document.getElementById('header-subtitle');
 
-            // The URL must point to the *RAW* version of the CSV file on GitHub.
             const csvUrl = 'https://raw.githubusercontent.com/NickPez36/CSL_OQS/main/data/Canoe%20Slalom%20OQS%20Modeling.csv';
 
             let rawData = [];
@@ -113,18 +114,20 @@
             let currentQualifyingAthletes = new Set();
             let currentSkippedAthletes = new Set();
             let kayakQuotaWinners = new Set();
+            let canoeQuotaWinners = new Set();
             let sortState = {};
 
             function loadData(csvText) {
                 try {
                     rawData = parseCSV(csvText);
-                    precomputeKayakQualifiers();
+                    precomputeAllQualifiers();
                     classSelectionView.classList.remove('hidden');
                     dataView.classList.add('hidden');
                     headerSubtitle.textContent = 'Live data loaded successfully from GitHub. Please select a class to begin analysis.';
                     headerSubtitle.classList.remove('text-red-400');
                     document.querySelectorAll('.class-tile').forEach(btn => btn.classList.remove('active'));
                 } catch (e) {
+                    console.error("CSV Parsing Error:", e);
                     headerSubtitle.textContent = 'Error parsing the CSV data. Please ensure the file is correctly formatted.';
                     headerSubtitle.classList.add('text-red-400');
                 }
@@ -132,16 +135,28 @@
 
             function parseCSV(text) {
                 const lines = text.trim().split('\n');
-                const fileHeaders = lines.shift().split(',').map(h => h.trim());
-                const data = lines.map(line => {
+                const headerLine = lines.shift().trim();
+                const fileHeaders = headerLine.split(',').map(h => {
+                    let header = h.trim();
+                    if (header.startsWith('"') && header.endsWith('"')) {
+                        header = header.substring(1, header.length - 1);
+                    }
+                    return header;
+                });
+
+                return lines.map(line => {
                     const values = line.split(',');
                     let obj = {};
                     fileHeaders.forEach((header, i) => {
-                        obj[header] = values[i] ? values[i].trim() : '';
+                        let value = values[i] ? values[i].trim() : '';
+                        // Strip surrounding quotes if they exist
+                        if (value.startsWith('"') && value.endsWith('"')) {
+                            value = value.substring(1, value.length - 1);
+                        }
+                        obj[header] = value;
                     });
                     return obj;
                 });
-                return data;
             }
 
             function calculateOQSData(classFilter) {
@@ -166,40 +181,17 @@
                     const avgRank = top5Results.length > 0 ? Math.round(totalRank / top5Results.length) : 0;
                     
                     const raceUIDsWithRank = top5Results.map(r => `${r['Competition UID']} (Rank ${r['Overall Rank']})`);
-                    while (raceUIDsWithRank.length < 5) {
-                        raceUIDsWithRank.push('-');
-                    }
+                    while (raceUIDsWithRank.length < 5) raceUIDsWithRank.push('-');
 
                     return {
-                        'Athlete Name': name,
-                        'Nation': data.nation,
-                        'Overall OQS Points': overallPoints,
-                        'Average Rank': avgRank,
-                        'OQS Race 1': raceUIDsWithRank[0],
-                        'OQS Race 2': raceUIDsWithRank[1],
-                        'OQS Race 3': raceUIDsWithRank[2],
-                        'OQS Race 4': raceUIDsWithRank[3],
-                        'OQS Race 5': raceUIDsWithRank[4],
+                        'Athlete Name': name, 'Nation': data.nation, 'Overall OQS Points': overallPoints, 'Average Rank': avgRank,
+                        'OQS Race 1': raceUIDsWithRank[0], 'OQS Race 2': raceUIDsWithRank[1], 'OQS Race 3': raceUIDsWithRank[2],
+                        'OQS Race 4': raceUIDsWithRank[3], 'OQS Race 5': raceUIDsWithRank[4],
                     };
                 });
                 
-                // Sort and then add rank
                 const sortedData = calculatedData.sort((a, b) => b['Overall OQS Points'] - a['Overall OQS Points']);
-                
-                return sortedData.map((athlete, index) => ({
-                    'Rank': index + 1,
-                    ...athlete
-                }));
-            }
-
-            function precomputeKayakQualifiers() {
-                const k1mRankings = calculateOQSData('K1M');
-                const k1wRankings = calculateOQSData('K1W');
-                
-                const k1mQualifiers = getSimpleQualifiers(k1mRankings, 6);
-                const k1wQualifiers = getSimpleQualifiers(k1wRankings, 6);
-
-                kayakQuotaWinners = new Set([...k1mQualifiers, ...k1wQualifiers]);
+                return sortedData.map((athlete, index) => ({ 'Rank': index + 1, ...athlete }));
             }
 
             function getSimpleQualifiers(data, quotaLimit) {
@@ -215,43 +207,81 @@
                 return qualifyingAthletes;
             }
 
+            function getC1Qualifiers(data, quotaLimit) {
+                const qualifiedNations = new Set();
+                const qualifyingAthletes = new Set();
+                for (const athlete of data) {
+                    if (kayakQuotaWinners.has(athlete['Athlete Name'])) continue;
+                    if (qualifiedNations.size < quotaLimit && !qualifiedNations.has(athlete.Nation)) {
+                        qualifiedNations.add(athlete.Nation);
+                        qualifyingAthletes.add(athlete['Athlete Name']);
+                    }
+                }
+                return qualifyingAthletes;
+            }
+
+            function precomputeAllQualifiers() {
+                const k1mRankings = calculateOQSData('K1M');
+                const k1wRankings = calculateOQSData('K1W');
+                const k1mQualifiers = getSimpleQualifiers(k1mRankings, 6);
+                const k1wQualifiers = getSimpleQualifiers(k1wRankings, 6);
+                kayakQuotaWinners = new Set([...k1mQualifiers, ...k1wQualifiers]);
+
+                const c1mRankings = calculateOQSData('C1M');
+                const c1wRankings = calculateOQSData('C1W');
+                const c1mQualifiers = getC1Qualifiers(c1mRankings, 10);
+                const c1wQualifiers = getC1Qualifiers(c1wRankings, 10);
+                canoeQuotaWinners = new Set([...c1mQualifiers, ...c1wQualifiers]);
+            }
+
             function getFinalQuotaAllocation(data, quotaLimit, selectedClass) {
                 const qualifiedNations = new Set();
                 const qualifyingAthletes = new Set();
-                const skippedKayakQualifiers = new Set();
+                const skippedQualifiers = new Set();
 
-                if (['C1M', 'C1W'].includes(selectedClass)) {
+                if (['K1M', 'K1W'].includes(selectedClass)) {
                     for (const athlete of data) {
-                        // If this athlete has a K1 quota, mark them as skipped and continue
-                        if (kayakQuotaWinners.has(athlete['Athlete Name'])) {
-                            skippedKayakQualifiers.add(athlete['Athlete Name']);
-                            continue; 
-                        }
-
-                        // If quota is not full and nation is not yet qualified
                         if (qualifiedNations.size < quotaLimit && !qualifiedNations.has(athlete.Nation)) {
                             qualifiedNations.add(athlete.Nation);
                             qualifyingAthletes.add(athlete['Athlete Name']);
                         }
                     }
-                } else { // For K1M and K1W, the logic is simple
-                     for (const athlete of data) {
+                } else if (['C1M', 'C1W'].includes(selectedClass)) {
+                    for (const athlete of data) {
+                        if (kayakQuotaWinners.has(athlete['Athlete Name'])) {
+                            skippedQualifiers.add(athlete['Athlete Name']);
+                            continue;
+                        }
                         if (qualifiedNations.size < quotaLimit && !qualifiedNations.has(athlete.Nation)) {
                             qualifiedNations.add(athlete.Nation);
                             qualifyingAthletes.add(athlete['Athlete Name']);
                         }
-                        if (qualifiedNations.size >= quotaLimit) break;
+                    }
+                } else if (['MCSLX', 'WCSLX'].includes(selectedClass)) {
+                    const slalomQuotaWinners = new Set([...kayakQuotaWinners, ...canoeQuotaWinners]);
+                    const qualifiedCrossNations = new Set(); // Tracks nations that get a Kayak Cross spot specifically
+                    
+                    for (const athlete of data) {
+                        // First, check if athlete already has a K1/C1 quota. If so, they are skipped.
+                        if (slalomQuotaWinners.has(athlete['Athlete Name'])) {
+                            skippedQualifiers.add(athlete['Athlete Name']);
+                            continue;
+                        }
+
+                        // If quota isn't full and this athlete's nation hasn't got a KX spot yet
+                        if (qualifiedCrossNations.size < quotaLimit && !qualifiedCrossNations.has(athlete.Nation)) {
+                            qualifiedCrossNations.add(athlete.Nation);
+                            qualifyingAthletes.add(athlete['Athlete Name']);
+                        }
                     }
                 }
-                
-                return { qualifyingAthletes, skippedKayakQualifiers };
+                return { qualifyingAthletes, skippedQualifiers };
             }
 
             function renderTable(dataToRender) {
                 tableBody.innerHTML = ''; 
-
                 if (dataToRender.length === 0) {
-                    tableBody.innerHTML = `<tr><td colspan="${currentHeaders.length}" class="p-8 text-center text-gray-500">No matching data found.</td></tr>`;
+                    tableBody.innerHTML = `<tr><td colspan="${currentHeaders.length}" class="p-8 text-center text-gray-500">No data available for this class.</td></tr>`;
                     rowCountEl.textContent = 0;
                     return;
                 }
@@ -263,10 +293,7 @@
                         const td = document.createElement('td');
                         td.className = "px-6 py-4 whitespace-nowrap text-sm text-gray-300";
                         td.textContent = row[header];
-                        if (header === 'Athlete Name') {
-                            td.classList.add('font-medium', 'text-white');
-                        }
-                        if (header === 'Rank') {
+                        if (header === 'Athlete Name' || header === 'Rank') {
                              td.classList.add('font-bold', 'text-white');
                         }
                         if (header === 'Nation' && currentQualifyingAthletes.has(row['Athlete Name'])) {
@@ -299,37 +326,39 @@
             function handleSort(columnHeader) {
                 const currentDirection = sortState[columnHeader];
                 const newDirection = currentDirection === 'asc' ? 'desc' : 'asc';
-                
                 sortState = { [columnHeader]: newDirection };
 
                 processedData.sort((a, b) => {
-                    const valA = a[columnHeader];
-                    const valB = b[columnHeader];
-                    
+                    const valA = a[columnHeader]; const valB = b[columnHeader];
                     const isNumeric = !isNaN(parseFloat(valA)) && !isNaN(parseFloat(valB));
-
                     if (isNumeric) {
                         return newDirection === 'asc' ? parseFloat(valA) - parseFloat(valB) : parseFloat(valB) - parseFloat(valA);
                     } else {
-                        return newDirection === 'asc' 
-                            ? String(valA).localeCompare(String(valB))
-                            : String(valB).localeCompare(String(valA));
+                        return newDirection === 'asc' ? String(valA).localeCompare(String(valB)) : String(valB).localeCompare(String(valA));
                     }
                 });
                 filterAndRender();
             }
 
             function filterAndRender() {
-                const searchTerm = searchInput.value.toLowerCase();
+                const searchTerm = searchInput.value.toLowerCase().trim();
+                
                 if (!searchTerm) {
                     renderTable(processedData);
                     return;
                 }
+
                 const filteredData = processedData.filter(row => {
-                    return Object.values(row).some(value =>
-                        String(value).toLowerCase().includes(searchTerm)
-                    );
+                    // Iterate through each header to build a searchable string for the row.
+                    // This is a more robust method than Object.values() and can prevent
+                    // issues if the row object has unexpected properties.
+                    return currentHeaders.some(header => {
+                        const value = row[header];
+                        // Ensure value exists before trying to search it.
+                        return value ? String(value).toLowerCase().includes(searchTerm) : false;
+                    });
                 });
+                
                 renderTable(filteredData);
             }
 
@@ -337,17 +366,15 @@
                 viewTitle.textContent = `${selectedClass} - OQS Ranking (Best 5 Results)`;
                 processedData = calculateOQSData(selectedClass);
 
-                const quotaLimit = ['K1M', 'K1W'].includes(selectedClass) ? 6 : 10;
+                const quotaLimit = ['K1M', 'K1W'].includes(selectedClass) ? 6 
+                    : ['C1M', 'C1W'].includes(selectedClass) ? 10 
+                    : 3;
                 
                 const allocation = getFinalQuotaAllocation(processedData, quotaLimit, selectedClass);
                 currentQualifyingAthletes = allocation.qualifyingAthletes;
-                currentSkippedAthletes = allocation.skippedKayakQualifiers;
+                currentSkippedAthletes = allocation.skippedQualifiers;
                 
-                if (processedData.length > 0) {
-                    currentHeaders = Object.keys(processedData[0]);
-                } else {
-                    currentHeaders = ['Rank', 'Athlete Name', 'Nation', 'Overall OQS Points', 'Average Rank', 'OQS Race 1', 'OQS Race 2', 'OQS Race 3', 'OQS Race 4', 'OQS Race 5'];
-                }
+                currentHeaders = processedData.length > 0 ? Object.keys(processedData[0]) : ['Rank', 'Athlete Name', 'Nation', 'Overall OQS Points', 'Average Rank', 'OQS Race 1', 'OQS Race 2', 'OQS Race 3', 'OQS Race 4', 'OQS Race 5'];
                 sortState = { 'Overall OQS Points': 'desc' };
 
                 renderHeaders();
@@ -363,9 +390,7 @@
             async function fetchData(url) {
                 try {
                     const response = await fetch(url);
-                    if (!response.ok) {
-                       throw new Error(`Network response was not ok: ${response.statusText}`);
-                    }
+                    if (!response.ok) throw new Error(`Network response was not ok: ${response.statusText}`);
                     const csvText = await response.text();
                     loadData(csvText);
                 } catch (error) {
@@ -375,7 +400,6 @@
                 }
             }
 
-
             classSelectionView.addEventListener('click', (e) => {
                 if(e.target.matches('button.class-tile')) {
                     const selectedClass = e.target.dataset.class;
@@ -384,12 +408,12 @@
             });
 
             searchInput.addEventListener('input', filterAndRender);
-
-            // Initial load from GitHub
             fetchData(csvUrl);
         });
     </script>
 </body>
 </html>
+
+
 
 
