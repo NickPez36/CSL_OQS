@@ -10,7 +10,6 @@
         body {
             font-family: 'Inter', sans-serif;
         }
-        /* The .table-container class is no longer needed as styles are applied directly */
         thead th {
             position: sticky;
             top: 0;
@@ -27,20 +26,28 @@
             right: 1rem;
             opacity: 0.5;
         }
-        .class-tile {
+        .class-tile, .method-btn {
             transition: all 0.2s ease-in-out;
             opacity: 0.7;
             transform: scale(0.95);
         }
-        .class-tile:hover {
+        .class-tile:hover, .method-btn:hover {
             opacity: 1;
             transform: scale(1);
         }
-        .class-tile.active {
+        .class-tile.active, .method-btn.active {
             opacity: 1;
             transform: scale(1);
             box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.2), 0 4px 6px rgba(0, 0, 0, 0.1);
             font-weight: 700;
+        }
+        .tab-btn {
+            transition: all 0.2s ease-in-out;
+            border-bottom: 3px solid transparent;
+        }
+        .tab-btn.active {
+            border-bottom-color: #3b82f6; /* blue-500 */
+            color: #ffffff; /* text-white */
         }
     </style>
 </head>
@@ -51,11 +58,42 @@
             <h1 class="text-3xl font-bold text-white">Canoe Slalom Olympic Qualification System Modeler</h1>
             <p id="header-subtitle" class="mt-2 text-gray-400">Fetching the latest qualification data...</p>
         </header>
-
+        
         <main class="bg-gray-800 rounded-lg shadow-lg p-6">
-            <!-- Class Selection -->
+            <!-- Step 1: Method Selection -->
+            <div id="method-selection" class="mb-8">
+                <h2 class="text-xl font-semibold text-white mb-4">Step 1: Choose Calculation Method</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <button class="method-btn bg-gray-700 hover:bg-gray-600 text-white p-6 rounded-lg text-lg" data-method="5/9">
+                        <span class="font-bold text-2xl">2022/23 - 5/9</span>
+                        <span class="block text-sm text-gray-300 mt-1">Best 5 of all 9 eligible races from 2022 & 2023</span>
+                    </button>
+                     <button class="method-btn bg-gray-700 hover:bg-gray-600 text-white p-6 rounded-lg text-lg" data-method="4/6">
+                        <span class="font-bold text-2xl">2023 - 4/6</span>
+                        <span class="block text-sm text-gray-300 mt-1">Best 4 of 6 eligible races from 2023 only</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Step 2: Proposal Selection (Tabs) -->
+            <div id="proposal-selection" class="hidden mb-6 border-b border-gray-700">
+                 <h2 class="text-xl font-semibold text-white mb-4">Step 2: Select a Proposal</h2>
+                <nav class="-mb-px flex space-x-6" aria-label="Tabs">
+                    <button class="tab-btn active text-gray-300 hover:text-white whitespace-nowrap py-4 px-1 text-base font-medium" data-proposal="ICF Proposal">
+                        ICF Proposal
+                    </button>
+                    <button class="tab-btn text-gray-400 hover:text-white whitespace-nowrap py-4 px-1 text-base font-medium" data-proposal="AUT and CZE Proposal">
+                        AUT and CZE Proposal
+                    </button>
+                    <button class="tab-btn text-gray-400 hover:text-white whitespace-nowrap py-4 px-1 text-base font-medium" data-proposal="CAN Proposal">
+                        CAN Proposal
+                    </button>
+                </nav>
+            </div>
+
+            <!-- Step 3: Class Selection -->
             <div id="class-selection" class="hidden mb-6">
-                 <h2 class="text-xl font-semibold text-white mb-4">Select a Class to Analyze</h2>
+                 <h2 class="text-xl font-semibold text-white mb-4">Step 3: Analyze a Class</h2>
                  <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
                      <button data-class="K1M" class="class-tile bg-blue-600 hover:bg-blue-500 text-white py-4 px-4 rounded-lg text-lg">K1M</button>
                      <button data-class="K1W" class="class-tile bg-pink-600 hover:bg-pink-500 text-white py-4 px-4 rounded-lg text-lg">K1W</button>
@@ -72,7 +110,6 @@
                      <h2 id="view-title" class="text-2xl font-bold text-white text-center md:text-left"></h2>
                     <input type="text" id="searchInput" placeholder="Search results..." class="w-full md:w-80 px-3 py-2 border border-gray-600 bg-gray-700 text-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
                 </div>
-                <!-- Color Key Moved Here -->
                 <p class="text-sm text-gray-400 mb-4">
                     <span class="text-green-400 font-semibold">Green Highlight</span> = Quota Place secured. 
                     <span class="text-yellow-400 font-semibold">Yellow Highlight</span> = Skipped (athlete already secured a quota in another class).
@@ -101,12 +138,23 @@
             const tableHead = document.getElementById('table-head');
             const tableBody = document.getElementById('table-body');
             const rowCountEl = document.getElementById('rowCount');
+            
+            const methodSelectionView = document.getElementById('method-selection');
+            const proposalSelectionView = document.getElementById('proposal-selection');
             const classSelectionView = document.getElementById('class-selection');
             const dataView = document.getElementById('data-view');
             const viewTitle = document.getElementById('view-title');
             const headerSubtitle = document.getElementById('header-subtitle');
 
             const csvUrl = 'https://raw.githubusercontent.com/NickPez36/CSL_OQS/main/data/Canoe%20Slalom%20OQS%20Modeling.csv';
+
+            const proposals = {
+                'ICF Proposal': { kayak: 6, canoe: 10, cross: 3 },
+                'AUT and CZE Proposal': { kayak: 10, canoe: 10, cross: 4 },
+                'CAN Proposal': { kayak: 10, canoe: 10, cross: 0 }
+            };
+            let activeMethod = ''; // '5/9' or '4/6'
+            let activeProposal = 'ICF Proposal';
 
             let rawData = [];
             let processedData = [];
@@ -117,18 +165,37 @@
             let canoeQuotaWinners = new Set();
             let sortState = {};
 
+            function selectMethod(method) {
+                activeMethod = method;
+                document.querySelectorAll('.method-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.method === method);
+                });
+                proposalSelectionView.classList.remove('hidden');
+                // When method changes, hide subsequent views and reset
+                classSelectionView.classList.add('hidden');
+                dataView.classList.add('hidden');
+            }
+
+            function selectProposal(proposalName) {
+                activeProposal = proposalName;
+                document.querySelectorAll('.tab-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.proposal === proposalName);
+                });
+                classSelectionView.classList.remove('hidden');
+                dataView.classList.add('hidden');
+                
+                if (rawData.length > 0) {
+                    precomputeAllQualifiers();
+                }
+            }
+            
             function loadData(csvText) {
                 try {
                     rawData = parseCSV(csvText);
-                    precomputeAllQualifiers();
-                    classSelectionView.classList.remove('hidden');
-                    dataView.classList.add('hidden');
-                    headerSubtitle.textContent = 'Live data loaded successfully from GitHub. Please select a class to begin analysis.';
-                    headerSubtitle.classList.remove('text-red-400');
-                    document.querySelectorAll('.class-tile').forEach(btn => btn.classList.remove('active'));
+                    headerSubtitle.textContent = 'Live data loaded. Please select a calculation method to begin.';
                 } catch (e) {
                     console.error("CSV Parsing Error:", e);
-                    headerSubtitle.textContent = 'Error parsing the CSV data. Please ensure the file is correctly formatted.';
+                    headerSubtitle.textContent = 'Error parsing the CSV data.';
                     headerSubtitle.classList.add('text-red-400');
                 }
             }
@@ -136,23 +203,13 @@
             function parseCSV(text) {
                 const lines = text.trim().split('\n');
                 const headerLine = lines.shift().trim();
-                const fileHeaders = headerLine.split(',').map(h => {
-                    let header = h.trim();
-                    if (header.startsWith('"') && header.endsWith('"')) {
-                        header = header.substring(1, header.length - 1);
-                    }
-                    return header;
-                });
+                const fileHeaders = headerLine.split(',').map(h => h.trim().replace(/"/g, ''));
 
                 return lines.map(line => {
                     const values = line.split(',');
                     let obj = {};
                     fileHeaders.forEach((header, i) => {
-                        let value = values[i] ? values[i].trim() : '';
-                        // Strip surrounding quotes if they exist
-                        if (value.startsWith('"') && value.endsWith('"')) {
-                            value = value.substring(1, value.length - 1);
-                        }
+                        let value = values[i] ? values[i].trim().replace(/"/g, '') : '';
                         obj[header] = value;
                     });
                     return obj;
@@ -161,28 +218,35 @@
 
             function calculateOQSData(classFilter) {
                 const athletes = {};
-                rawData.filter(row => row.Class === classFilter).forEach(row => {
+                let filteredRawData = rawData;
+
+                // 1. Filter by year if necessary
+                if (activeMethod === '4/6') {
+                    filteredRawData = rawData.filter(row => row.Year === '2023');
+                }
+                
+                // 2. Group results by athlete
+                filteredRawData.filter(row => row.Class === classFilter).forEach(row => {
                     const athleteName = row['Athlete Name'];
                     if (!athletes[athleteName]) {
-                        athletes[athleteName] = {
-                            nation: row.Nation,
-                            results: []
-                        };
+                        athletes[athleteName] = { nation: row.Nation, results: [] };
                     }
                     athletes[athleteName].results.push(row);
                 });
 
+                // 3. Calculate points based on the selected method
                 const calculatedData = Object.entries(athletes).map(([name, data]) => {
                     const sortedResults = data.results.sort((a, b) => parseInt(b['OQS Points'], 10) - parseInt(a['OQS Points'], 10));
-                    const top5Results = sortedResults.slice(0, 5);
                     
-                    const overallPoints = top5Results.reduce((sum, result) => sum + parseInt(result['OQS Points'], 10), 0);
-                    const totalRank = top5Results.reduce((sum, result) => sum + parseInt(result['Overall Rank'], 10), 0);
-                    const avgRank = top5Results.length > 0 ? Math.round(totalRank / top5Results.length) : 0;
-                    
-                    const raceUIDsWithRank = top5Results.map(r => `${r['Competition UID']} (Rank ${r['Overall Rank']})`);
-                    while (raceUIDsWithRank.length < 5) raceUIDsWithRank.push('-');
+                    const topResults = (activeMethod === '4/6') ? sortedResults.slice(0, 4) : sortedResults.slice(0, 5);
 
+                    const overallPoints = topResults.reduce((sum, result) => sum + parseInt(result['OQS Points'], 10), 0);
+                    const totalRank = topResults.reduce((sum, result) => sum + parseInt(result['Overall Rank'], 10), 0);
+                    const avgRank = topResults.length > 0 ? Math.round(totalRank / topResults.length) : 0;
+                    
+                    const raceUIDsWithRank = topResults.map(r => `${r['Competition UID']} (Rank ${r['Overall Rank']})`);
+                    while (raceUIDsWithRank.length < 5) raceUIDsWithRank.push('-');
+                    
                     return {
                         'Athlete Name': name, 'Nation': data.nation, 'Overall OQS Points': overallPoints, 'Average Rank': avgRank,
                         'OQS Race 1': raceUIDsWithRank[0], 'OQS Race 2': raceUIDsWithRank[1], 'OQS Race 3': raceUIDsWithRank[2],
@@ -221,17 +285,22 @@
             }
 
             function precomputeAllQualifiers() {
+                if (!activeMethod) return; // Don't run if no method is selected
+                const quotas = proposals[activeProposal];
+
                 const k1mRankings = calculateOQSData('K1M');
                 const k1wRankings = calculateOQSData('K1W');
-                const k1mQualifiers = getSimpleQualifiers(k1mRankings, 6);
-                const k1wQualifiers = getSimpleQualifiers(k1wRankings, 6);
-                kayakQuotaWinners = new Set([...k1mQualifiers, ...k1wQualifiers]);
+                kayakQuotaWinners = new Set([
+                    ...getSimpleQualifiers(k1mRankings, quotas.kayak),
+                    ...getSimpleQualifiers(k1wRankings, quotas.kayak)
+                ]);
 
                 const c1mRankings = calculateOQSData('C1M');
                 const c1wRankings = calculateOQSData('C1W');
-                const c1mQualifiers = getC1Qualifiers(c1mRankings, 10);
-                const c1wQualifiers = getC1Qualifiers(c1wRankings, 10);
-                canoeQuotaWinners = new Set([...c1mQualifiers, ...c1wQualifiers]);
+                canoeQuotaWinners = new Set([
+                    ...getC1Qualifiers(c1mRankings, quotas.canoe),
+                    ...getC1Qualifiers(c1wRankings, quotas.canoe)
+                ]);
             }
 
             function getFinalQuotaAllocation(data, quotaLimit, selectedClass) {
@@ -259,16 +328,13 @@
                     }
                 } else if (['MCSLX', 'WCSLX'].includes(selectedClass)) {
                     const slalomQuotaWinners = new Set([...kayakQuotaWinners, ...canoeQuotaWinners]);
-                    const qualifiedCrossNations = new Set(); // Tracks nations that get a Kayak Cross spot specifically
+                    const qualifiedCrossNations = new Set(); 
                     
                     for (const athlete of data) {
-                        // First, check if athlete already has a K1/C1 quota. If so, they are skipped.
                         if (slalomQuotaWinners.has(athlete['Athlete Name'])) {
                             skippedQualifiers.add(athlete['Athlete Name']);
                             continue;
                         }
-
-                        // If quota isn't full and this athlete's nation hasn't got a KX spot yet
                         if (qualifiedCrossNations.size < quotaLimit && !qualifiedCrossNations.has(athlete.Nation)) {
                             qualifiedCrossNations.add(athlete.Nation);
                             qualifyingAthletes.add(athlete['Athlete Name']);
@@ -343,18 +409,15 @@
             function filterAndRender() {
                 const searchTerm = searchInput.value.toLowerCase().trim();
                 
+                const dataToFilter = processedData || [];
                 if (!searchTerm) {
-                    renderTable(processedData);
+                    renderTable(dataToFilter);
                     return;
                 }
 
-                const filteredData = processedData.filter(row => {
-                    // Iterate through each header to build a searchable string for the row.
-                    // This is a more robust method than Object.values() and can prevent
-                    // issues if the row object has unexpected properties.
+                const filteredData = dataToFilter.filter(row => {
                     return currentHeaders.some(header => {
                         const value = row[header];
-                        // Ensure value exists before trying to search it.
                         return value ? String(value).toLowerCase().includes(searchTerm) : false;
                     });
                 });
@@ -363,12 +426,15 @@
             }
 
             function showDataView(selectedClass) {
-                viewTitle.textContent = `${selectedClass} - OQS Ranking (Best 5 Results)`;
+                const quotas = proposals[activeProposal];
+                const methodText = activeMethod === '4/6' ? '2023 - Best 4/6 Results' : '2022/23 - Best 5/9 Results';
+                viewTitle.textContent = `${selectedClass} - OQS Ranking (${methodText})`;
+
                 processedData = calculateOQSData(selectedClass);
 
-                const quotaLimit = ['K1M', 'K1W'].includes(selectedClass) ? 6 
-                    : ['C1M', 'C1W'].includes(selectedClass) ? 10 
-                    : 3;
+                const quotaLimit = ['K1M', 'K1W'].includes(selectedClass) ? quotas.kayak 
+                    : ['C1M', 'C1W'].includes(selectedClass) ? quotas.canoe 
+                    : quotas.cross;
                 
                 const allocation = getFinalQuotaAllocation(processedData, quotaLimit, selectedClass);
                 currentQualifyingAthletes = allocation.qualifyingAthletes;
@@ -390,20 +456,33 @@
             async function fetchData(url) {
                 try {
                     const response = await fetch(url);
-                    if (!response.ok) throw new Error(`Network response was not ok: ${response.statusText}`);
+                    if (!response.ok) throw new Error(`Network response was not ok`);
                     const csvText = await response.text();
                     loadData(csvText);
                 } catch (error) {
                     console.error('Failed to fetch CSV data from GitHub:', error);
-                    headerSubtitle.textContent = 'Error: Could not load data from GitHub. Please check the URL and your internet connection.';
+                    headerSubtitle.textContent = 'Error: Could not load data from GitHub.';
                     headerSubtitle.classList.add('text-red-400');
                 }
             }
+            
+            // --- Event Listeners Setup ---
+            methodSelectionView.addEventListener('click', (e) => {
+                const methodBtn = e.target.closest('.method-btn');
+                if (methodBtn) {
+                    selectMethod(methodBtn.dataset.method);
+                }
+            });
+
+            proposalSelectionView.addEventListener('click', (e) => {
+                if(e.target.matches('button.tab-btn')) {
+                    selectProposal(e.target.dataset.proposal);
+                }
+            });
 
             classSelectionView.addEventListener('click', (e) => {
                 if(e.target.matches('button.class-tile')) {
-                    const selectedClass = e.target.dataset.class;
-                    showDataView(selectedClass);
+                    showDataView(e.target.dataset.class);
                 }
             });
 
@@ -413,7 +492,4 @@
     </script>
 </body>
 </html>
-
-
-
 
