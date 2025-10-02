@@ -26,19 +26,19 @@
             right: 1rem;
             opacity: 0.5;
         }
-        .class-tile, .method-btn {
+        .class-tile, .method-btn, .dataset-btn {
             transition: all 0.2s ease-in-out;
-            opacity: 0.7;
-            transform: scale(0.95);
+            opacity: 0.8;
+            transform: scale(0.98);
         }
-        .class-tile:hover, .method-btn:hover {
+        .class-tile:hover, .method-btn:hover, .dataset-btn:hover {
             opacity: 1;
             transform: scale(1);
         }
-        .class-tile.active, .method-btn.active {
+        .class-tile.active, .method-btn.active, .dataset-btn.active {
             opacity: 1;
             transform: scale(1);
-            box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.2), 0 4px 6px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.5), 0 4px 6px rgba(0, 0, 0, 0.1); /* Indigo shadow */
             font-weight: 700;
         }
         .tab-btn {
@@ -56,28 +56,43 @@
     <div class="container mx-auto p-4 md:p-8">
         <header class="bg-gray-800 rounded-lg shadow-lg p-6 mb-8">
             <h1 class="text-3xl font-bold text-white">Canoe Slalom Olympic Qualification System Modeler</h1>
-            <p id="header-subtitle" class="mt-2 text-gray-400">Fetching the latest qualification data...</p>
+            <p id="header-subtitle" class="mt-2 text-gray-400">Please select a dataset to begin...</p>
         </header>
         
         <main class="bg-gray-800 rounded-lg shadow-lg p-6">
-            <!-- Step 1: Method Selection -->
-            <div id="method-selection" class="mb-8">
-                <h2 class="text-xl font-semibold text-white mb-4">Step 1: Choose Calculation Method</h2>
+            <!-- Step 1: Dataset Selection -->
+            <div id="dataset-selection" class="mb-8">
+                <h2 class="text-xl font-semibold text-white mb-4">Step 1: Choose Dataset</h2>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <button class="method-btn bg-gray-700 hover:bg-gray-600 text-white p-6 rounded-lg text-lg" data-method="5/9">
-                        <span class="font-bold text-2xl">2022/23 - 5/9</span>
-                        <span class="block text-sm text-gray-300 mt-1">Best 5 of all 9 eligible races from 2022 & 2023</span>
+                    <button class="dataset-btn bg-indigo-700 hover:bg-indigo-600 text-white p-6 rounded-lg text-lg text-left" data-dataset="22/23">
+                        <span class="font-bold text-2xl">2022-2023 Cycle</span>
+                        <span class="block text-sm text-gray-300 mt-1">Analyze the previous Olympic qualification cycle data.</span>
                     </button>
-                     <button class="method-btn bg-gray-700 hover:bg-gray-600 text-white p-6 rounded-lg text-lg" data-method="4/6">
-                        <span class="font-bold text-2xl">2023 - 4/6</span>
-                        <span class="block text-sm text-gray-300 mt-1">Best 4 of 6 eligible races from 2023 only</span>
+                     <button class="dataset-btn bg-indigo-700 hover:bg-indigo-600 text-white p-6 rounded-lg text-lg text-left" data-dataset="24/25">
+                        <span class="font-bold text-2xl">2024-2025 Cycle</span>
+                        <span class="block text-sm text-gray-300 mt-1">Analyze the current, up-to-date competition data.</span>
                     </button>
                 </div>
             </div>
 
-            <!-- Step 2: Proposal Selection (Tabs) -->
+            <!-- Step 2: Method Selection -->
+            <div id="method-selection" class="hidden mb-8">
+                <h2 class="text-xl font-semibold text-white mb-4">Step 2: Choose Calculation Method</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <button class="method-btn bg-gray-700 hover:bg-gray-600 text-white p-6 rounded-lg text-lg text-left" data-method="full_cycle">
+                        <span id="method-btn-full-title" class="font-bold text-2xl"></span>
+                        <span id="method-btn-full-desc" class="block text-sm text-gray-300 mt-1"></span>
+                    </button>
+                     <button class="method-btn bg-gray-700 hover:bg-gray-600 text-white p-6 rounded-lg text-lg text-left" data-method="single_year">
+                        <span id="method-btn-single-year-title" class="font-bold text-2xl"></span>
+                        <span id="method-btn-single-year-desc" class="block text-sm text-gray-300 mt-1"></span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Step 3: Proposal Selection (Tabs) -->
             <div id="proposal-selection" class="hidden mb-6 border-b border-gray-700">
-                 <h2 class="text-xl font-semibold text-white mb-4">Step 2: Select a Proposal</h2>
+                 <h2 class="text-xl font-semibold text-white mb-4">Step 3: Select a Proposal</h2>
                 <nav class="-mb-px flex space-x-6" aria-label="Tabs">
                     <button class="tab-btn active text-gray-300 hover:text-white whitespace-nowrap py-4 px-1 text-base font-medium" data-proposal="ICF Proposal">
                         ICF Proposal
@@ -91,9 +106,9 @@
                 </nav>
             </div>
 
-            <!-- Step 3: Class Selection -->
+            <!-- Step 4: Class Selection -->
             <div id="class-selection" class="hidden mb-6">
-                 <h2 class="text-xl font-semibold text-white mb-4">Step 3: Analyze a Class</h2>
+                 <h2 class="text-xl font-semibold text-white mb-4">Step 4: Analyze a Class</h2>
                  <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
                      <button data-class="K1M" class="class-tile bg-blue-600 hover:bg-blue-500 text-white py-4 px-4 rounded-lg text-lg">K1M</button>
                      <button data-class="K1W" class="class-tile bg-pink-600 hover:bg-pink-500 text-white py-4 px-4 rounded-lg text-lg">K1W</button>
@@ -124,7 +139,6 @@
                     Showing <span id="rowCount" class="font-semibold">0</span> athletes. 
                 </p>
             </div>
-
         </main>
 
         <footer class="text-center text-gray-500 mt-8">
@@ -139,6 +153,7 @@
             const tableBody = document.getElementById('table-body');
             const rowCountEl = document.getElementById('rowCount');
             
+            const datasetSelectionView = document.getElementById('dataset-selection');
             const methodSelectionView = document.getElementById('method-selection');
             const proposalSelectionView = document.getElementById('proposal-selection');
             const classSelectionView = document.getElementById('class-selection');
@@ -146,14 +161,19 @@
             const viewTitle = document.getElementById('view-title');
             const headerSubtitle = document.getElementById('header-subtitle');
 
-            const csvUrl = 'https://raw.githubusercontent.com/NickPez36/CSL_OQS/main/data/Canoe%20Slalom%20OQS%20Modeling.csv';
+            const csvUrls = {
+                '22/23': 'https://raw.githubusercontent.com/NickPez36/CSL_OQS/main/data/2022-2023%20Canoe%20Slalom%20OQS%20Modeling.csv',
+                '24/25': 'https://raw.githubusercontent.com/NickPez36/CSL_OQS/main/data/2024-2025%20Canoe%20Slalom%20OQS%20Modeling.csv'
+            };
 
             const proposals = {
                 'ICF Proposal': { kayak: 6, canoe: 10, cross: 3 },
                 'AUT and CZE Proposal': { kayak: 10, canoe: 10, cross: 4 },
                 'CAN Proposal': { kayak: 10, canoe: 10, cross: 0 }
             };
-            let activeMethod = ''; // '5/9' or '4/6'
+
+            let activeDataset = ''; // '22/23' or '24/25'
+            let activeMethod = ''; // 'full_cycle' or 'single_year'
             let activeProposal = 'ICF Proposal';
 
             let rawData = [];
@@ -165,34 +185,62 @@
             let canoeQuotaWinners = new Set();
             let sortState = {};
 
+            function selectDataset(dataset) {
+                activeDataset = dataset;
+                document.querySelectorAll('.dataset-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.dataset === dataset));
+                
+                headerSubtitle.textContent = 'Fetching data...';
+                fetchData(csvUrls[dataset]);
+
+                // Update method buttons based on selected dataset
+                const methodBtnFullTitle = document.getElementById('method-btn-full-title');
+                const methodBtnFullDesc = document.getElementById('method-btn-full-desc');
+                const methodBtnSingleYearTitle = document.getElementById('method-btn-single-year-title');
+                const methodBtnSingleYearDesc = document.getElementById('method-btn-single-year-desc');
+
+                if (dataset === '22/23') {
+                    methodBtnFullTitle.textContent = '2022/23 - 5/9';
+                    methodBtnFullDesc.textContent = 'Best 5 of all 9 eligible races from 2022 & 2023';
+                    methodBtnSingleYearTitle.textContent = '2023 - 4/6';
+                    methodBtnSingleYearDesc.textContent = 'Best 4 of 6 eligible races from 2023 only';
+                } else { // 24/25
+                    methodBtnFullTitle.textContent = '2024/25 - 5/10';
+                    methodBtnFullDesc.textContent = 'Best 5 of all 10 eligible races from 2024 & 2025';
+                    methodBtnSingleYearTitle.textContent = '2025 - 4/5';
+                    methodBtnSingleYearDesc.textContent = 'Best 4 of 5 eligible races from 2025 only';
+                }
+
+                methodSelectionView.classList.remove('hidden');
+                proposalSelectionView.classList.add('hidden');
+                classSelectionView.classList.add('hidden');
+                dataView.classList.add('hidden');
+            }
+
             function selectMethod(method) {
                 activeMethod = method;
-                document.querySelectorAll('.method-btn').forEach(btn => {
-                    btn.classList.toggle('active', btn.dataset.method === method);
-                });
+                document.querySelectorAll('.method-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.method === method));
+                
                 proposalSelectionView.classList.remove('hidden');
-                // When method changes, hide subsequent views and reset
                 classSelectionView.classList.add('hidden');
                 dataView.classList.add('hidden');
             }
 
             function selectProposal(proposalName) {
                 activeProposal = proposalName;
-                document.querySelectorAll('.tab-btn').forEach(btn => {
-                    btn.classList.toggle('active', btn.dataset.proposal === proposalName);
-                });
-                classSelectionView.classList.remove('hidden');
-                dataView.classList.add('hidden');
+                document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.proposal === proposalName));
                 
                 if (rawData.length > 0) {
                     precomputeAllQualifiers();
                 }
+
+                classSelectionView.classList.remove('hidden');
+                dataView.classList.add('hidden');
             }
             
             function loadData(csvText) {
                 try {
                     rawData = parseCSV(csvText);
-                    headerSubtitle.textContent = 'Live data loaded. Please select a calculation method to begin.';
+                    headerSubtitle.textContent = 'Data loaded. Please select a calculation method.';
                 } catch (e) {
                     console.error("CSV Parsing Error:", e);
                     headerSubtitle.textContent = 'Error parsing the CSV data.';
@@ -221,8 +269,9 @@
                 let filteredRawData = rawData;
 
                 // 1. Filter by year if necessary
-                if (activeMethod === '4/6') {
-                    filteredRawData = rawData.filter(row => row.Year === '2023');
+                if (activeMethod === 'single_year') {
+                    const targetYear = activeDataset === '22/23' ? '2023' : '2025';
+                    filteredRawData = rawData.filter(row => row.Year === targetYear);
                 }
                 
                 // 2. Group results by athlete
@@ -238,7 +287,8 @@
                 const calculatedData = Object.entries(athletes).map(([name, data]) => {
                     const sortedResults = data.results.sort((a, b) => parseInt(b['OQS Points'], 10) - parseInt(a['OQS Points'], 10));
                     
-                    const topResults = (activeMethod === '4/6') ? sortedResults.slice(0, 4) : sortedResults.slice(0, 5);
+                    const sliceCount = (activeMethod === 'single_year') ? 4 : 5;
+                    const topResults = sortedResults.slice(0, sliceCount);
 
                     const overallPoints = topResults.reduce((sum, result) => sum + parseInt(result['OQS Points'], 10), 0);
                     const totalRank = topResults.reduce((sum, result) => sum + parseInt(result['Overall Rank'], 10), 0);
@@ -285,22 +335,14 @@
             }
 
             function precomputeAllQualifiers() {
-                if (!activeMethod) return; // Don't run if no method is selected
+                if (!activeMethod) return;
                 const quotas = proposals[activeProposal];
-
                 const k1mRankings = calculateOQSData('K1M');
                 const k1wRankings = calculateOQSData('K1W');
-                kayakQuotaWinners = new Set([
-                    ...getSimpleQualifiers(k1mRankings, quotas.kayak),
-                    ...getSimpleQualifiers(k1wRankings, quotas.kayak)
-                ]);
-
+                kayakQuotaWinners = new Set([...getSimpleQualifiers(k1mRankings, quotas.kayak), ...getSimpleQualifiers(k1wRankings, quotas.kayak)]);
                 const c1mRankings = calculateOQSData('C1M');
                 const c1wRankings = calculateOQSData('C1W');
-                canoeQuotaWinners = new Set([
-                    ...getC1Qualifiers(c1mRankings, quotas.canoe),
-                    ...getC1Qualifiers(c1wRankings, quotas.canoe)
-                ]);
+                canoeQuotaWinners = new Set([...getC1Qualifiers(c1mRankings, quotas.canoe), ...getC1Qualifiers(c1wRankings, quotas.canoe)]);
             }
 
             function getFinalQuotaAllocation(data, quotaLimit, selectedClass) {
@@ -329,7 +371,6 @@
                 } else if (['MCSLX', 'WCSLX'].includes(selectedClass)) {
                     const slalomQuotaWinners = new Set([...kayakQuotaWinners, ...canoeQuotaWinners]);
                     const qualifiedCrossNations = new Set(); 
-                    
                     for (const athlete of data) {
                         if (slalomQuotaWinners.has(athlete['Athlete Name'])) {
                             skippedQualifiers.add(athlete['Athlete Name']);
@@ -347,11 +388,10 @@
             function renderTable(dataToRender) {
                 tableBody.innerHTML = ''; 
                 if (dataToRender.length === 0) {
-                    tableBody.innerHTML = `<tr><td colspan="${currentHeaders.length}" class="p-8 text-center text-gray-500">No data available for this class.</td></tr>`;
+                    tableBody.innerHTML = `<tr><td colspan="${currentHeaders.length}" class="p-8 text-center text-gray-500">No data available.</td></tr>`;
                     rowCountEl.textContent = 0;
                     return;
                 }
-
                 dataToRender.forEach(row => {
                     const tr = document.createElement('tr');
                     tr.className = "hover:bg-gray-700";
@@ -393,7 +433,6 @@
                 const currentDirection = sortState[columnHeader];
                 const newDirection = currentDirection === 'asc' ? 'desc' : 'asc';
                 sortState = { [columnHeader]: newDirection };
-
                 processedData.sort((a, b) => {
                     const valA = a[columnHeader]; const valB = b[columnHeader];
                     const isNumeric = !isNaN(parseFloat(valA)) && !isNaN(parseFloat(valB));
@@ -408,30 +447,28 @@
 
             function filterAndRender() {
                 const searchTerm = searchInput.value.toLowerCase().trim();
-                
                 const dataToFilter = processedData || [];
                 if (!searchTerm) {
                     renderTable(dataToFilter);
                     return;
                 }
-
                 const filteredData = dataToFilter.filter(row => {
                     return currentHeaders.some(header => {
                         const value = row[header];
                         return value ? String(value).toLowerCase().includes(searchTerm) : false;
                     });
                 });
-                
                 renderTable(filteredData);
             }
 
             function showDataView(selectedClass) {
                 const quotas = proposals[activeProposal];
-                const methodText = activeMethod === '4/6' ? '2023 - Best 4/6 Results' : '2022/23 - Best 5/9 Results';
+                const methodText = activeMethod === 'single_year' 
+                    ? (activeDataset === '22/23' ? '2023 - Best 4/6' : '2025 - Best 4/5')
+                    : (activeDataset === '22/23' ? '2022/23 - Best 5/9' : '2024/25 - Best 5/10');
                 viewTitle.textContent = `${selectedClass} - OQS Ranking (${methodText})`;
 
                 processedData = calculateOQSData(selectedClass);
-
                 const quotaLimit = ['K1M', 'K1W'].includes(selectedClass) ? quotas.kayak 
                     : ['C1M', 'C1W'].includes(selectedClass) ? quotas.canoe 
                     : quotas.cross;
@@ -442,15 +479,10 @@
                 
                 currentHeaders = processedData.length > 0 ? Object.keys(processedData[0]) : ['Rank', 'Athlete Name', 'Nation', 'Overall OQS Points', 'Average Rank', 'OQS Race 1', 'OQS Race 2', 'OQS Race 3', 'OQS Race 4', 'OQS Race 5'];
                 sortState = { 'Overall OQS Points': 'desc' };
-
                 renderHeaders();
                 filterAndRender();
-
                 dataView.classList.remove('hidden');
-
-                document.querySelectorAll('.class-tile').forEach(btn => {
-                    btn.classList.toggle('active', btn.dataset.class === selectedClass);
-                });
+                document.querySelectorAll('.class-tile').forEach(btn => btn.classList.toggle('active', btn.dataset.class === selectedClass));
             }
             
             async function fetchData(url) {
@@ -467,6 +499,13 @@
             }
             
             // --- Event Listeners Setup ---
+            datasetSelectionView.addEventListener('click', (e) => {
+                const datasetBtn = e.target.closest('.dataset-btn');
+                if (datasetBtn) {
+                    selectDataset(datasetBtn.dataset.dataset);
+                }
+            });
+
             methodSelectionView.addEventListener('click', (e) => {
                 const methodBtn = e.target.closest('.method-btn');
                 if (methodBtn) {
@@ -487,7 +526,6 @@
             });
 
             searchInput.addEventListener('input', filterAndRender);
-            fetchData(csvUrl);
         });
     </script>
 </body>
