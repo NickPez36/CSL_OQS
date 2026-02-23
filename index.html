@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canoe Slalom OQS Modeler</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        thead th {
+            position: sticky;
+            top: 0;
+            background-color: #1f2937; /* bg-gray-800 */
+            z-index: 10;
+        }
+        .sortable {
+            cursor: pointer;
+            position: relative;
+        }
+        .sortable::after {
+            content: '↕';
+            position: absolute;
+            right: 1rem;
+            opacity: 0.5;
+        }
+        .class-tile, .dataset-btn {
+            transition: all 0.2s ease-in-out;
+            opacity: 0.8;
+            transform: scale(0.98);
+        }
+        .class-tile:hover, .dataset-btn:hover {
+            opacity: 1;
+            transform: scale(1);
+        }
+        .class-tile.active, .dataset-btn.active {
+            opacity: 1;
+            transform: scale(1);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.5), 0 4px 6px rgba(0, 0, 0, 0.1); /* Indigo shadow */
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200">
+
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="bg-gray-800 rounded-lg shadow-lg p-6 mb-8">
+            <h1 class="text-3xl font-bold text-white">Canoe Slalom Olympic Qualification System Modeler</h1>
+            <p id="header-subtitle" class="mt-2 text-gray-400">Please select a dataset to begin...</p>
+        </header>
+        
+        <main class="bg-gray-800 rounded-lg shadow-lg p-6">
+            <!-- Step 1: Dataset Selection -->
+            <div id="dataset-selection" class="mb-8">
+                <h2 class="text-xl font-semibold text-white mb-4">Step 1: Choose Dataset</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <button class="dataset-btn bg-indigo-700 hover:bg-indigo-600 text-white p-6 rounded-lg text-lg text-left" data-dataset="22/23">
+                        <span class="font-bold text-2xl">2022-2023 Cycle</span>
+                        <span class="block text-sm text-gray-300 mt-1">Best 5 of 9 eligible races.</span>
+                    </button>
+                     <button class="dataset-btn bg-indigo-700 hover:bg-indigo-600 text-white p-6 rounded-lg text-lg text-left" data-dataset="24/25">
+                        <span class="font-bold text-2xl">2024-2025 Cycle</span>
+                        <span class="block text-sm text-gray-300 mt-1">Best 5 of 11 eligible races.</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Proposal (fixed: Kayak 6, Canoe 10, Cross 3) -->
+            <div id="proposal-selection" class="hidden mb-6 border-b border-gray-700 pb-4">
+                <p class="text-gray-300">ICF Proposal: Kayak 6, Canoe 10, Cross 3</p>
+            </div>
+
+            <!-- Step 2: Class Selection -->
+            <div id="class-selection" class="hidden mb-6">
+                 <h2 class="text-xl font-semibold text-white mb-4">Step 2: Analyze a Class</h2>
+                 <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                     <button data-class="K1M" class="class-tile bg-blue-600 hover:bg-blue-500 text-white py-4 px-4 rounded-lg text-lg">K1M</button>
+                     <button data-class="K1W" class="class-tile bg-pink-600 hover:bg-pink-500 text-white py-4 px-4 rounded-lg text-lg">K1W</button>
+                     <button data-class="C1M" class="class-tile bg-green-600 hover:bg-green-500 text-white py-4 px-4 rounded-lg text-lg">C1M</button>
+                     <button data-class="C1W" class="class-tile bg-purple-600 hover:bg-purple-500 text-white py-4 px-4 rounded-lg text-lg">C1W</button>
+                     <button data-class="MCSLX" class="class-tile bg-orange-600 hover:bg-orange-500 text-white py-4 px-4 rounded-lg text-lg">MCSLX</button>
+                     <button data-class="WCSLX" class="class-tile bg-teal-600 hover:bg-teal-500 text-white py-4 px-4 rounded-lg text-lg">WCSLX</button>
+                 </div>
+            </div>
+            
+            <!-- Data View -->
+            <div id="data-view" class="hidden">
+                <div class="flex flex-col md:flex-row items-center justify-between gap-4 mb-4">
+                     <h2 id="view-title" class="text-2xl font-bold text-white text-center md:text-left"></h2>
+                    <input type="text" id="searchInput" placeholder="Search results..." class="w-full md:w-80 px-3 py-2 border border-gray-600 bg-gray-700 text-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div class="bg-gray-700/50 p-4 rounded-lg mb-4 text-sm text-gray-300">
+                    <p class="font-semibold mb-2">Legend:</p>
+                    <div class="flex flex-wrap gap-4">
+                        <div class="flex items-center gap-2">
+                            <span class="w-4 h-4 bg-green-900 border border-green-700 rounded block"></span>
+                            <span>Quota Place Secured</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="w-4 h-4 bg-yellow-800 border border-yellow-700 rounded block"></span>
+                            <span>Skipped (Already qualified in another class)</span>
+                        </div>
+                    </div>
+                </div>
+                <div id="table-container" class="border border-gray-700 rounded-lg max-h-[70vh] overflow-auto">
+                    <table class="min-w-full divide-y divide-gray-700">
+                        <thead class="bg-gray-800" id="table-head"></thead>
+                        <tbody class="bg-gray-900 divide-y divide-gray-700" id="table-body"></tbody>
+                    </table>
+                </div>
+                <p class="text-sm text-gray-400 mt-4">
+                    Showing <span id="rowCount" class="font-semibold">0</span> athletes. 
+                </p>
+            </div>
+        </main>
+
+        <footer class="text-center text-gray-500 mt-8">
+            <p>Canoe Slalom Olympic Qualification System Modeling</p>
+        </footer>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const searchInput = document.getElementById('searchInput');
+            const tableHead = document.getElementById('table-head');
+            const tableBody = document.getElementById('table-body');
+            const rowCountEl = document.getElementById('rowCount');
+            
+            const datasetSelectionView = document.getElementById('dataset-selection');
+            const proposalSelectionView = document.getElementById('proposal-selection');
+            const classSelectionView = document.getElementById('class-selection');
+            const dataView = document.getElementById('data-view');
+            const viewTitle = document.getElementById('view-title');
+            const headerSubtitle = document.getElementById('header-subtitle');
+
+            // --- DATA CONFIGURATION ---
+            const csvUrls = {
+                '22/23': 'https://raw.githubusercontent.com/NickPez36/CSL_OQS/main/data/2022-2023%20Canoe%20Slalom%20OQS%20Modeling.csv',
+                '24/25': 'https://raw.githubusercontent.com/NickPez36/CSL_OQS/main/data/2024-2025%20Canoe%20Slalom%20OQS%20Modeling.csv'
+            };
+
+            // --- QUOTAS (ICF Proposal: Kayak 6, Canoe 10, Cross 3) ---
+            const quotas = { kayak: 6, canoe: 10, cross: 3 };
+
+            let activeDataset = ''; // '22/23' or '24/25'
+            let activeClass = null;
+
+            let rawData = [];
+            let processedData = [];
+            let currentHeaders = [];
+            
+            // Tracking Sets
+            let currentQualifyingAthletes = new Set();
+            let currentSkippedAthletes = new Set();
+            let kayakQuotaWinners = new Set();
+            let crossQuotaWinners = new Set();
+            let canoeQuotaWinners = new Set();
+
+            let sortState = {};
+
+            function selectDataset(dataset) {
+                activeDataset = dataset;
+                document.querySelectorAll('.dataset-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.dataset === dataset));
+                
+                headerSubtitle.textContent = 'Fetching data...';
+                fetchData(csvUrls[dataset]);
+
+                proposalSelectionView.classList.remove('hidden');
+                classSelectionView.classList.remove('hidden');
+            }
+            
+            function loadData(csvText) {
+                try {
+                    rawData = parseCSV(csvText);
+                    headerSubtitle.textContent = 'Data loaded. Select a class to view rankings.';
+                    
+                    if (activeDataset) {
+                        precomputeAllQualifiers();
+                        if (activeClass && !dataView.classList.contains('hidden')) {
+                            showDataView(activeClass);
+                        }
+                    }
+                } catch (e) {
+                    console.error("CSV Parsing Error:", e);
+                    headerSubtitle.textContent = 'Error parsing the CSV data.';
+                    headerSubtitle.classList.add('text-red-400');
+                }
+            }
+
+            function parseCSV(text) {
+                const lines = text.trim().split('\n');
+                const headerLine = lines.shift().trim();
+                const fileHeaders = headerLine.split(',').map(h => h.trim().replace(/"/g, ''));
+
+                return lines.map(line => {
+                    const values = line.split(',');
+                    let obj = {};
+                    fileHeaders.forEach((header, i) => {
+                        let value = values[i] ? values[i].trim().replace(/"/g, '') : '';
+                        obj[header] = value;
+                    });
+                    return obj;
+                });
+            }
+
+            function calculateOQSData(classFilter) {
+                const athletes = {};
+                
+                // Always use full data for 2-year cycle
+                let filteredRawData = rawData;
+                
+                // 1. Group results by athlete
+                filteredRawData.filter(row => row.Class === classFilter).forEach(row => {
+                    const athleteName = row['Athlete Name'];
+                    if (!athletes[athleteName]) {
+                        athletes[athleteName] = { nation: row.Nation, results: [] };
+                    }
+                    athletes[athleteName].results.push(row);
+                });
+
+                // 2. Calculate points (Always Best 5)
+                const calculatedData = Object.entries(athletes).map(([name, data]) => {
+                    const sortedResults = data.results.sort((a, b) => parseInt(b['OQS Points'], 10) - parseInt(a['OQS Points'], 10));
+                    
+                    const sliceCount = 5; // Fixed to 5
+                    const topResults = sortedResults.slice(0, sliceCount);
+
+                    const overallPoints = topResults.reduce((sum, result) => sum + parseInt(result['OQS Points'], 10), 0);
+                    const totalRank = topResults.reduce((sum, result) => sum + parseInt(result['Overall Rank'], 10), 0);
+                    const avgRank = topResults.length > 0 ? Math.round(totalRank / topResults.length) : 0;
+                    
+                    const raceUIDsWithRank = topResults.map(r => `${r['Competition UID']} (Rank ${r['Overall Rank']})`);
+                    while (raceUIDsWithRank.length < 5) raceUIDsWithRank.push('-');
+                    
+                    return {
+                        'Athlete Name': name, 'Nation': data.nation, 'Overall OQS Points': overallPoints, 'Average Rank': avgRank,
+                        'OQS Race 1': raceUIDsWithRank[0], 'OQS Race 2': raceUIDsWithRank[1], 'OQS Race 3': raceUIDsWithRank[2],
+                        'OQS Race 4': raceUIDsWithRank[3], 'OQS Race 5': raceUIDsWithRank[4],
+                    };
+                });
+                
+                const sortedData = calculatedData.sort((a, b) => {
+                    if (b['Overall OQS Points'] !== a['Overall OQS Points']) {
+                        return b['Overall OQS Points'] - a['Overall OQS Points'];
+                    }
+                    return a['Average Rank'] - b['Average Rank'];
+                });
+
+                return sortedData.map((athlete, index) => ({ 'Rank': index + 1, ...athlete }));
+            }
+
+            function getQualifiersAndNations(data, quotaLimit) {
+                const qualifiedNations = new Set();
+                const qualifyingAthletes = new Set();
+                for (const athlete of data) {
+                    if (qualifiedNations.size < quotaLimit && !qualifiedNations.has(athlete.Nation)) {
+                        qualifiedNations.add(athlete.Nation);
+                        qualifyingAthletes.add(athlete['Athlete Name']);
+                    }
+                    if (qualifiedNations.size >= quotaLimit) break;
+                }
+                return { athletes: qualifyingAthletes, nations: qualifiedNations };
+            }
+
+            function getCrossQualifiers(data, quotaLimit) {
+                const qualifiedNations = new Set();
+                const qualifyingAthletes = new Set();
+                for (const athlete of data) {
+                    if (kayakQuotaWinners.has(athlete['Athlete Name'])) continue;
+                    if (qualifiedNations.size < quotaLimit && !qualifiedNations.has(athlete.Nation)) {
+                        qualifiedNations.add(athlete.Nation);
+                        qualifyingAthletes.add(athlete['Athlete Name']);
+                    }
+                }
+                return qualifyingAthletes;
+            }
+
+            function getC1Qualifiers(data, quotaLimit) {
+                const qualifiedNations = new Set();
+                const qualifyingAthletes = new Set();
+                for (const athlete of data) {
+                    if (kayakQuotaWinners.has(athlete['Athlete Name']) || crossQuotaWinners.has(athlete['Athlete Name'])) continue;
+                    if (qualifiedNations.size < quotaLimit && !qualifiedNations.has(athlete.Nation)) {
+                        qualifiedNations.add(athlete.Nation);
+                        qualifyingAthletes.add(athlete['Athlete Name']);
+                    }
+                }
+                return qualifyingAthletes;
+            }
+
+            function precomputeAllQualifiers() {
+                // Order: Kayak → Kayak Cross → Canoe
+                const k1mRankings = calculateOQSData('K1M');
+                const k1wRankings = calculateOQSData('K1W');
+                const k1mResults = getQualifiersAndNations(k1mRankings, quotas.kayak);
+                const k1wResults = getQualifiersAndNations(k1wRankings, quotas.kayak);
+                kayakQuotaWinners = new Set([...k1mResults.athletes, ...k1wResults.athletes]);
+
+                const mcslxRankings = calculateOQSData('MCSLX');
+                const wcslxRankings = calculateOQSData('WCSLX');
+                crossQuotaWinners = new Set([...getCrossQualifiers(mcslxRankings, quotas.cross), ...getCrossQualifiers(wcslxRankings, quotas.cross)]);
+
+                const c1mRankings = calculateOQSData('C1M');
+                const c1wRankings = calculateOQSData('C1W');
+                canoeQuotaWinners = new Set([...getC1Qualifiers(c1mRankings, quotas.canoe), ...getC1Qualifiers(c1wRankings, quotas.canoe)]);
+            }
+
+            function getFinalQuotaAllocation(data, quotaLimit, selectedClass) {
+                const qualifiedNations = new Set();
+                const qualifyingAthletes = new Set();
+                const skippedQualifiers = new Set();
+
+                if (['K1M', 'K1W'].includes(selectedClass)) {
+                    for (const athlete of data) {
+                        if (qualifiedNations.size < quotaLimit && !qualifiedNations.has(athlete.Nation)) {
+                            qualifiedNations.add(athlete.Nation);
+                            qualifyingAthletes.add(athlete['Athlete Name']);
+                        }
+                    }
+                } else if (['C1M', 'C1W'].includes(selectedClass)) {
+                    for (const athlete of data) {
+                        if (kayakQuotaWinners.has(athlete['Athlete Name']) || crossQuotaWinners.has(athlete['Athlete Name'])) {
+                            skippedQualifiers.add(athlete['Athlete Name']);
+                            continue;
+                        }
+                        if (qualifiedNations.size < quotaLimit && !qualifiedNations.has(athlete.Nation)) {
+                            qualifiedNations.add(athlete.Nation);
+                            qualifyingAthletes.add(athlete['Athlete Name']);
+                        }
+                    }
+                } else if (['MCSLX', 'WCSLX'].includes(selectedClass)) {
+                    const qualifiedCrossNations = new Set();
+                    for (const athlete of data) {
+                        if (kayakQuotaWinners.has(athlete['Athlete Name'])) {
+                            skippedQualifiers.add(athlete['Athlete Name']);
+                            continue;
+                        }
+                        if (qualifiedCrossNations.size < quotaLimit && !qualifiedCrossNations.has(athlete.Nation)) {
+                            qualifiedCrossNations.add(athlete.Nation);
+                            qualifyingAthletes.add(athlete['Athlete Name']);
+                        }
+                    }
+                }
+                return { qualifyingAthletes, skippedQualifiers };
+            }
+
+            function renderTable(dataToRender) {
+                tableBody.innerHTML = ''; 
+                if (dataToRender.length === 0) {
+                    tableBody.innerHTML = `<tr><td colspan="${currentHeaders.length}" class="p-8 text-center text-gray-500">No data available.</td></tr>`;
+                    rowCountEl.textContent = 0;
+                    return;
+                }
+                dataToRender.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-gray-700 transition-colors duration-150";
+                    currentHeaders.forEach(header => {
+                        const td = document.createElement('td');
+                        td.className = "px-6 py-4 whitespace-nowrap text-sm text-gray-300";
+                        td.textContent = row[header];
+                        if (header === 'Athlete Name' || header === 'Rank') {
+                             td.classList.add('font-bold', 'text-white');
+                        }
+                        if (header === 'Nation' && currentQualifyingAthletes.has(row['Athlete Name'])) {
+                            td.classList.add('bg-green-900', 'text-green-100', 'font-bold', 'rounded-sm');
+                        } else if (header === 'Nation' && currentSkippedAthletes.has(row['Athlete Name'])) {
+                            td.classList.add('bg-yellow-800', 'text-yellow-100', 'font-bold', 'rounded-sm');
+                        }
+                        tr.appendChild(td);
+                    });
+                    tableBody.appendChild(tr);
+                });
+                rowCountEl.textContent = dataToRender.length;
+            }
+
+            function renderHeaders() {
+                tableHead.innerHTML = '';
+                const tr = document.createElement('tr');
+                currentHeaders.forEach((header) => {
+                    const th = document.createElement('th');
+                    th.scope = 'col';
+                    th.className = 'sortable px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider select-none';
+                    th.textContent = header;
+                    th.dataset.header = header;
+                    th.addEventListener('click', () => handleSort(header));
+                    tr.appendChild(th);
+                });
+                tableHead.appendChild(tr);
+            }
+            
+            function handleSort(columnHeader) {
+                const currentDirection = sortState[columnHeader];
+                const newDirection = currentDirection === 'asc' ? 'desc' : 'asc';
+                sortState = { [columnHeader]: newDirection };
+                processedData.sort((a, b) => {
+                    const valA = a[columnHeader]; const valB = b[columnHeader];
+                    const isNumeric = !isNaN(parseFloat(valA)) && !isNaN(parseFloat(valB));
+                    if (isNumeric) {
+                        return newDirection === 'asc' ? parseFloat(valA) - parseFloat(valB) : parseFloat(valB) - parseFloat(valA);
+                    } else {
+                        return newDirection === 'asc' ? String(valA).localeCompare(String(valB)) : String(valB).localeCompare(String(valA));
+                    }
+                });
+                filterAndRender();
+            }
+
+            function filterAndRender() {
+                const searchTerm = searchInput.value.toLowerCase().trim();
+                const dataToFilter = processedData || [];
+                if (!searchTerm) {
+                    renderTable(dataToFilter);
+                    return;
+                }
+                const filteredData = dataToFilter.filter(row => {
+                    return currentHeaders.some(header => {
+                        const value = row[header];
+                        return value ? String(value).toLowerCase().includes(searchTerm) : false;
+                    });
+                });
+                renderTable(filteredData);
+            }
+
+            function showDataView(selectedClass) {
+                activeClass = selectedClass;
+                const cycleText = activeDataset === '22/23' ? '2-Year Cycle (5/9)' : '2-Year Cycle (5/11)';
+                viewTitle.textContent = `${selectedClass} (${cycleText})`;
+
+                processedData = calculateOQSData(selectedClass);
+                const quotaLimit = ['K1M', 'K1W'].includes(selectedClass) ? quotas.kayak 
+                    : ['C1M', 'C1W'].includes(selectedClass) ? quotas.canoe 
+                    : quotas.cross;
+                
+                const allocation = getFinalQuotaAllocation(processedData, quotaLimit, selectedClass);
+                currentQualifyingAthletes = allocation.qualifyingAthletes;
+                currentSkippedAthletes = allocation.skippedQualifiers;
+                
+                currentHeaders = processedData.length > 0 ? Object.keys(processedData[0]) : ['Rank', 'Athlete Name', 'Nation', 'Overall OQS Points', 'Average Rank', 'OQS Race 1', 'OQS Race 2', 'OQS Race 3', 'OQS Race 4', 'OQS Race 5'];
+                sortState = { 'Overall OQS Points': 'desc' };
+                renderHeaders();
+                filterAndRender();
+                dataView.classList.remove('hidden');
+                document.querySelectorAll('.class-tile').forEach(btn => btn.classList.toggle('active', btn.dataset.class === selectedClass));
+            }
+            
+            async function fetchData(url) {
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error(`Network response was not ok`);
+                    const csvText = await response.text();
+                    loadData(csvText);
+                } catch (error) {
+                    console.error('Failed to fetch CSV data from GitHub:', error);
+                    headerSubtitle.textContent = 'Error: Could not load data from GitHub.';
+                    headerSubtitle.classList.add('text-red-400');
+                }
+            }
+            
+            // --- Event Listeners Setup ---
+            datasetSelectionView.addEventListener('click', (e) => {
+                const datasetBtn = e.target.closest('.dataset-btn');
+                if (datasetBtn) {
+                    selectDataset(datasetBtn.dataset.dataset);
+                }
+            });
+
+            classSelectionView.addEventListener('click', (e) => {
+                if(e.target.matches('button.class-tile')) {
+                    showDataView(e.target.dataset.class);
+                }
+            });
+
+            searchInput.addEventListener('input', filterAndRender);
+        });
+    </script>
+</body>
+</html>
