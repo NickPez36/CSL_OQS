@@ -16,15 +16,25 @@
             background-color: #1f2937; /* bg-gray-800 */
             z-index: 10;
         }
+        /* No `position` here: `thead th` above is already sticky, which is enough to
+           anchor the ::after arrow. Setting `position: relative` would win on
+           specificity and silently break the sticky header. */
         .sortable {
             cursor: pointer;
-            position: relative;
         }
         .sortable::after {
             content: '↕';
             position: absolute;
             right: 1rem;
             opacity: 0.5;
+        }
+        .sortable.sort-asc::after {
+            content: '↑';
+            opacity: 1;
+        }
+        .sortable.sort-desc::after {
+            content: '↓';
+            opacity: 1;
         }
         .class-tile, .dataset-btn {
             transition: all 0.2s ease-in-out;
@@ -34,6 +44,14 @@
         .class-tile:hover, .dataset-btn:hover {
             opacity: 1;
             transform: scale(1);
+        }
+        .class-tile:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+        .class-tile:disabled:hover {
+            opacity: 0.35;
+            transform: scale(0.98);
         }
         .class-tile.active, .dataset-btn.active {
             opacity: 1;
@@ -103,8 +121,9 @@
                             <span>Skipped (Already qualified in another class)</span>
                         </div>
                     </div>
-                    <p class="mt-3 text-gray-400">The &quot;Top X&quot; columns show how many of each athlete&apos;s best 5 results fall in each rank band; bands are independent (each result counts in one column only). K1/C1: Top 3 = ranks 1–3, Top 6 = 4–6, Top 12 = 7–12, Top 20 = 13–20. Cross: Top 4 = 1–4, Top 8 = 5–8, Top 12 = 9–12, Top 16 = 13–16.</p>
-                    <p class="mt-3 text-gray-400">The &quot;Top N UN&quot; column shows how many of the athlete&apos;s 5 counting races (the races that make up their OQS points) they finished in the top N unique nations (first N distinct nations by finish order in that race). N = 6 for Kayak, 12 for Canoe, 3 for Kayak Cross.</p>
+                    <p class="mt-3 text-gray-400">The &quot;Top X&quot; columns show how many of each athlete&apos;s counting results (up to 5) fall in each rank band; bands are independent (each result counts in one column only). K1/C1: Top 3 = ranks 1–3, Top 6 = 4–6, Top 12 = 7–12, Top 20 = 13–20. Cross: Top 4 = 1–4, Top 8 = 5–8, Top 12 = 9–12, Top 16 = 13–16. Results outside these bands count in no column, so the Top X columns need not add up to 5.</p>
+                    <p class="mt-3 text-gray-400">The &quot;Top N UN&quot; column shows how many of the athlete&apos;s counting races (the races that make up their OQS points, up to 5) they finished in the top N unique nations (first N distinct nations by finish order in that race; where athletes tie on the boundary rank, all tied nations are credited). N = 6 for Kayak, 12 for Canoe, 3 for Kayak Cross.</p>
+                    <p class="mt-3 text-gray-400">Athletes are ranked by total OQS points, then by average finishing rank across their counting races. The average is shown rounded to the nearest whole number but ranked on its exact value, so two athletes can display the same average and still be separated. Results with no rank or no points recorded (DNS/DNF) are excluded.</p>
                 </div>
                 <div id="table-container" class="border border-gray-700 rounded-lg max-h-[70vh] overflow-auto">
                     <table class="min-w-full divide-y divide-gray-700">
@@ -147,10 +166,29 @@
             const quotas = { kayak: 6, canoe: 10, cross: 3 };
             // Top X unique nations (for new column): Kayak 6, Canoe 12, Cross 3
             const uniqueNationsQuota = { kayak: 6, canoe: 12, cross: 3 };
+
+            const KAYAK_CLASSES = ['K1M', 'K1W'];
+            const CANOE_CLASSES = ['C1M', 'C1W'];
+            const CROSS_CLASSES = ['MCSLX', 'WCSLX'];
+            const RESULTS_COUNTED = 5;
+
             function getUniqueNationsQuota(classFilter) {
-                if (['K1M', 'K1W'].includes(classFilter)) return uniqueNationsQuota.kayak;
-                if (['C1M', 'C1W'].includes(classFilter)) return uniqueNationsQuota.canoe;
+                if (KAYAK_CLASSES.includes(classFilter)) return uniqueNationsQuota.kayak;
+                if (CANOE_CLASSES.includes(classFilter)) return uniqueNationsQuota.canoe;
                 return uniqueNationsQuota.cross;
+            }
+
+            function getQuotaLimit(classFilter) {
+                if (KAYAK_CLASSES.includes(classFilter)) return quotas.kayak;
+                if (CANOE_CLASSES.includes(classFilter)) return quotas.canoe;
+                return quotas.cross;
+            }
+
+            // Independent rank bins by class (each result counts in exactly one bin)
+            function getBinRanges(classFilter) {
+                return CROSS_CLASSES.includes(classFilter)
+                    ? [{ key: 'Top 4', min: 1, max: 4 }, { key: 'Top 8', min: 5, max: 8 }, { key: 'Top 12', min: 9, max: 12 }, { key: 'Top 16', min: 13, max: 16 }]
+                    : [{ key: 'Top 3', min: 1, max: 3 }, { key: 'Top 6', min: 4, max: 6 }, { key: 'Top 12', min: 7, max: 12 }, { key: 'Top 20', min: 13, max: 20 }];
             }
 
             let activeDataset = ''; // '22/23' or '24/25'
@@ -159,34 +197,88 @@
             let rawData = [];
             let processedData = [];
             let currentHeaders = [];
-            
-            // Tracking Sets
+
+            // Tracking Sets — all keyed by athleteKey(), never by raw name.
             let currentQualifyingAthletes = new Set();
             let currentSkippedAthletes = new Set();
             let kayakQuotaWinners = new Set();
             let crossQuotaWinners = new Set();
-            let canoeQuotaWinners = new Set();
 
             let sortState = {};
+
+            // --- HELPERS ---
+
+            // parseInt that reports failure instead of quietly returning NaN, so it can
+            // never poison a comparator.
+            function toInt(value) {
+                const parsed = parseInt(value, 10);
+                return Number.isFinite(parsed) ? parsed : null;
+            }
+
+            // Total orderings that place unparseable values last in both directions.
+            function ascNullsLast(a, b) {
+                if (a === null && b === null) return 0;
+                if (a === null) return 1;
+                if (b === null) return -1;
+                return a - b;
+            }
+            function descNullsLast(a, b) {
+                if (a === null && b === null) return 0;
+                if (a === null) return 1;
+                if (b === null) return -1;
+                return b - a;
+            }
+
+            // Athletes are matched across classes by this key, not by raw name: the source
+            // data spells some names inconsistently between classes (e.g. "Ting I Wu" vs
+            // "Ting-I Wu"), which would silently break the cross-class skip rule.
+            function athleteKey(name, nation) {
+                const normalised = String(name || '').toLowerCase().replace(/[-–—]/g, ' ').replace(/\s+/g, ' ').trim();
+                return `${normalised}|${String(nation || '').toUpperCase().trim()}`;
+            }
+
+            // The 2022-2023 Kayak Cross races are recorded as "Ausgburg". Correct it for
+            // display only — the UID itself still groups the race correctly.
+            function displayRaceName(uid) {
+                return String(uid).replace(/Ausgburg/g, 'Augsburg');
+            }
+
+            function setClassTilesEnabled(enabled) {
+                document.querySelectorAll('.class-tile').forEach(btn => { btn.disabled = !enabled; });
+            }
 
             function selectDataset(dataset) {
                 activeDataset = dataset;
                 document.querySelectorAll('.dataset-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.dataset === dataset));
-                
+
+                // The tiles stay inert until the fetch lands, otherwise an early click
+                // renders an empty table and highlights against the previous cycle's quotas.
+                setClassTilesEnabled(false);
+                headerSubtitle.classList.remove('text-red-400');
                 headerSubtitle.textContent = 'Fetching data...';
                 fetchData(csvUrls[dataset]);
 
                 proposalSelectionView.classList.remove('hidden');
                 classSelectionView.classList.remove('hidden');
             }
-            
+
             function loadData(csvText) {
                 try {
-                    rawData = parseCSV(csvText);
-                    headerSubtitle.textContent = 'Data loaded. Select a class to view rankings.';
-                    
+                    const parsed = parseCSV(csvText);
+                    // Drop DNS/DNF rows ("-" rank, "#N/A" points). They score nothing, so
+                    // totals are unaffected, and keeping them would put NaN into the
+                    // rankings, the averages and the rank bands.
+                    rawData = parsed.filter(row => row.Class && row['Athlete Name']
+                        && toInt(row['OQS Points']) !== null && toInt(row['Overall Rank']) !== null);
+                    const excluded = parsed.length - rawData.length;
+
+                    headerSubtitle.classList.remove('text-red-400');
+                    headerSubtitle.textContent = 'Data loaded. Select a class to view rankings.'
+                        + (excluded > 0 ? ` (${excluded} non-scoring result${excluded === 1 ? '' : 's'} excluded.)` : '');
+
                     if (activeDataset) {
                         precomputeAllQualifiers();
+                        setClassTilesEnabled(true);
                         if (activeClass && !dataView.classList.contains('hidden')) {
                             showDataView(activeClass);
                         }
@@ -198,205 +290,209 @@
                 }
             }
 
+            // Quote-aware so an embedded comma (e.g. "Smith, John") cannot shift every
+            // column to the right.
+            function splitCSVLine(line) {
+                const values = [];
+                let current = '';
+                let inQuotes = false;
+                for (let i = 0; i < line.length; i++) {
+                    const char = line[i];
+                    if (char === '"') {
+                        if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+                        else { inQuotes = !inQuotes; }
+                    } else if (char === ',' && !inQuotes) {
+                        values.push(current);
+                        current = '';
+                    } else {
+                        current += char;
+                    }
+                }
+                values.push(current);
+                return values.map(value => value.trim());
+            }
+
             function parseCSV(text) {
-                const lines = text.trim().split('\n');
-                const headerLine = lines.shift().trim();
-                const fileHeaders = headerLine.split(',').map(h => h.trim().replace(/"/g, ''));
+                // Handles CRLF, a UTF-8 BOM and blank lines anywhere in the file.
+                const lines = text.replace(/^﻿/, '').split(/\r?\n/).filter(line => line.trim() !== '');
+                if (lines.length === 0) return [];
+                const fileHeaders = splitCSVLine(lines.shift());
 
                 return lines.map(line => {
-                    const values = line.split(',');
-                    let obj = {};
+                    const values = splitCSVLine(line);
+                    const obj = {};
                     fileHeaders.forEach((header, i) => {
-                        let value = values[i] ? values[i].trim().replace(/"/g, '') : '';
-                        obj[header] = value;
+                        obj[header] = values[i] !== undefined ? values[i] : '';
                     });
                     return obj;
                 });
             }
 
-            function calculateOQSData(classFilter) {
-                const athletes = {};
-                
-                // Always use full data for 2-year cycle
-                let filteredRawData = rawData;
-                const classRows = filteredRawData.filter(row => row.Class === classFilter);
-                
-                // 1. Group results by athlete
-                classRows.forEach(row => {
-                    const athleteName = row['Athlete Name'];
-                    if (!athletes[athleteName]) {
-                        athletes[athleteName] = { nation: row.Nation, results: [] };
-                    }
-                    athletes[athleteName].results.push(row);
-                });
-
-                // Per-race "top X unique nations": which race UIDs did each athlete achieve (first from their nation within first X distinct nations)
-                const topX = getUniqueNationsQuota(classFilter);
-                const topUniqueNationsRaceUIDs = {};
-                const byRace = {};
+            // For each race, which athletes finished inside the first X distinct nations.
+            // Only the first finisher from each nation counts, since a quota place is a
+            // nation's to win. Returns a Map of athlete name -> Set of race UIDs.
+            function findTopNationFinishes(classRows, topX) {
+                const byRace = new Map();
                 classRows.forEach(row => {
                     const uid = row['Competition UID'];
-                    if (!byRace[uid]) byRace[uid] = [];
-                    byRace[uid].push(row);
+                    if (!byRace.has(uid)) byRace.set(uid, []);
+                    byRace.get(uid).push(row);
                 });
-                Object.keys(byRace).forEach(raceUid => {
-                    const rows = byRace[raceUid].sort((a, b) => parseInt(a['Overall Rank'], 10) - parseInt(b['Overall Rank'], 10));
+
+                const achieved = new Map();
+                byRace.forEach((rows, raceUid) => {
+                    // Nation and name break rank ties so the result never depends on CSV row order.
+                    const ordered = [...rows].sort((a, b) =>
+                        ascNullsLast(toInt(a['Overall Rank']), toInt(b['Overall Rank']))
+                        || String(a.Nation).localeCompare(String(b.Nation))
+                        || String(a['Athlete Name']).localeCompare(String(b['Athlete Name'])));
+
                     const seenNations = new Set();
-                    for (const row of rows) {
-                        if (seenNations.size < topX && !seenNations.has(row.Nation)) {
-                            seenNations.add(row.Nation);
-                            const name = row['Athlete Name'];
-                            if (!topUniqueNationsRaceUIDs[name]) topUniqueNationsRaceUIDs[name] = new Set();
-                            topUniqueNationsRaceUIDs[name].add(raceUid);
-                        }
+                    let boundaryRank = null;
+                    for (const row of ordered) {
+                        const rank = toInt(row['Overall Rank']);
+                        // Once X nations are in, keep going only for athletes tied on the
+                        // boundary rank, so a shared rank is never split arbitrarily.
+                        if (seenNations.size >= topX && rank !== boundaryRank) break;
+                        if (seenNations.has(row.Nation)) continue;
+
+                        seenNations.add(row.Nation);
+                        if (seenNations.size === topX && boundaryRank === null) boundaryRank = rank;
+
+                        const name = row['Athlete Name'];
+                        if (!achieved.has(name)) achieved.set(name, new Set());
+                        achieved.get(name).add(raceUid);
                     }
                 });
+                return achieved;
+            }
 
-                // Independent rank bins by class (each result counts in exactly one bin)
-                // K1/C1: Top 3 = 1–3, Top 6 = 4–6, Top 12 = 7–12, Top 20 = 13–20
-                // Cross: Top 4 = 1–4, Top 8 = 5–8, Top 12 = 9–12, Top 16 = 13–16
-                const isCross = ['MCSLX', 'WCSLX'].includes(classFilter);
-                const binRanges = isCross
-                    ? [{ key: 'Top 4', min: 1, max: 4 }, { key: 'Top 8', min: 5, max: 8 }, { key: 'Top 12', min: 9, max: 12 }, { key: 'Top 16', min: 13, max: 16 }]
-                    : [{ key: 'Top 3', min: 1, max: 3 }, { key: 'Top 6', min: 4, max: 6 }, { key: 'Top 12', min: 7, max: 12 }, { key: 'Top 20', min: 13, max: 20 }];
+            function calculateOQSData(classFilter) {
+                // Always use full data for 2-year cycle
+                const classRows = rawData.filter(row => row.Class === classFilter);
+
+                // 1. Group results by athlete
+                const athletes = new Map();
+                classRows.forEach(row => {
+                    const athleteName = row['Athlete Name'];
+                    if (!athletes.has(athleteName)) {
+                        athletes.set(athleteName, { nation: row.Nation, results: [] });
+                    }
+                    athletes.get(athleteName).results.push(row);
+                });
+
+                const topX = getUniqueNationsQuota(classFilter);
+                const topNationFinishes = findTopNationFinishes(classRows, topX);
+                const binRanges = getBinRanges(classFilter);
 
                 // 2. Calculate points (Always Best 5)
-                const calculatedData = Object.entries(athletes).map(([name, data]) => {
-                    const sortedResults = data.results.sort((a, b) => parseInt(b['OQS Points'], 10) - parseInt(a['OQS Points'], 10));
-                    
-                    const sliceCount = 5; // Fixed to 5
-                    const topResults = sortedResults.slice(0, sliceCount);
+                const calculated = [...athletes.entries()].map(([name, data]) => {
+                    const sortedResults = [...data.results].sort((a, b) =>
+                        descNullsLast(toInt(a['OQS Points']), toInt(b['OQS Points']))
+                        || ascNullsLast(toInt(a['Overall Rank']), toInt(b['Overall Rank']))
+                        || String(a['Competition UID']).localeCompare(String(b['Competition UID'])));
 
-                    const overallPoints = topResults.reduce((sum, result) => sum + parseInt(result['OQS Points'], 10), 0);
-                    const totalRank = topResults.reduce((sum, result) => sum + parseInt(result['Overall Rank'], 10), 0);
-                    const avgRank = topResults.length > 0 ? Math.round(totalRank / topResults.length) : 0;
-                    
+                    const topResults = sortedResults.slice(0, RESULTS_COUNTED);
+
+                    const overallPoints = topResults.reduce((sum, result) => sum + (toInt(result['OQS Points']) || 0), 0);
+                    const totalRank = topResults.reduce((sum, result) => sum + (toInt(result['Overall Rank']) || 0), 0);
+                    // Kept unrounded: it is the tie-break for equal points, and rounding it
+                    // collapsed dozens of distinct averages onto the same value.
+                    const avgRankExact = topResults.length > 0 ? totalRank / topResults.length : 0;
+
                     const binCounts = {};
                     binRanges.forEach(({ key, min, max }) => {
                         binCounts[key] = topResults.filter(r => {
-                            const rank = parseInt(r['Overall Rank'], 10);
-                            return rank >= min && rank <= max;
+                            const rank = toInt(r['Overall Rank']);
+                            return rank !== null && rank >= min && rank <= max;
                         }).length;
                     });
-                    
-                    const raceUIDsWithRank = topResults.map(r => `${r['Competition UID']} (Rank ${r['Overall Rank']})`);
-                    while (raceUIDsWithRank.length < 5) raceUIDsWithRank.push('-');
-                    
-                    const topNUNKey = `Top ${topX} UN`;
-                    const topNUNCount = topUniqueNationsRaceUIDs[name] ? topResults.filter(r => topUniqueNationsRaceUIDs[name].has(r['Competition UID'])).length : 0;
-                    
+
+                    const raceUIDsWithRank = topResults.map(r => `${displayRaceName(r['Competition UID'])} (Rank ${r['Overall Rank']})`);
+                    while (raceUIDsWithRank.length < RESULTS_COUNTED) raceUIDsWithRank.push('-');
+
+                    const finishes = topNationFinishes.get(name);
+                    const topNUNCount = finishes ? topResults.filter(r => finishes.has(r['Competition UID'])).length : 0;
+
                     return {
-                        'Athlete Name': name, 'Nation': data.nation, 'Overall OQS Points': overallPoints, 'Average Rank': avgRank,
-                        ...binCounts,
-                        [topNUNKey]: topNUNCount,
-                        'OQS Race 1': raceUIDsWithRank[0], 'OQS Race 2': raceUIDsWithRank[1], 'OQS Race 3': raceUIDsWithRank[2],
-                        'OQS Race 4': raceUIDsWithRank[3], 'OQS Race 5': raceUIDsWithRank[4],
+                        name, nation: data.nation, overallPoints, avgRankExact, binCounts,
+                        topNUNCount, raceUIDsWithRank,
                     };
                 });
-                
-                const sortedData = calculatedData.sort((a, b) => {
-                    if (b['Overall OQS Points'] !== a['Overall OQS Points']) {
-                        return b['Overall OQS Points'] - a['Overall OQS Points'];
-                    }
-                    return a['Average Rank'] - b['Average Rank'];
-                });
 
-                return sortedData.map((athlete, index) => ({ 'Rank': index + 1, ...athlete }));
+                calculated.sort((a, b) =>
+                    descNullsLast(a.overallPoints, b.overallPoints)
+                    || ascNullsLast(a.avgRankExact, b.avgRankExact)
+                    || String(a.name).localeCompare(String(b.name)));
+
+                return calculated.map((athlete, index) => ({
+                    'Rank': index + 1,
+                    'Athlete Name': athlete.name,
+                    'Nation': athlete.nation,
+                    'Overall OQS Points': athlete.overallPoints,
+                    'Average Rank': Math.round(athlete.avgRankExact),
+                    // Displayed rounded, but sorted on the precise value: it is the
+                    // tie-break for equal points, so rounding it would collapse distinct
+                    // averages together. Keys prefixed "_" are hidden from the table.
+                    _avgRankExact: athlete.avgRankExact,
+                    ...athlete.binCounts,
+                    [`Top ${topX} UN`]: athlete.topNUNCount,
+                    'OQS Race 1': athlete.raceUIDsWithRank[0], 'OQS Race 2': athlete.raceUIDsWithRank[1],
+                    'OQS Race 3': athlete.raceUIDsWithRank[2], 'OQS Race 4': athlete.raceUIDsWithRank[3],
+                    'OQS Race 5': athlete.raceUIDsWithRank[4],
+                }));
             }
 
-            function getQualifiersAndNations(data, quotaLimit) {
-                const qualifiedNations = new Set();
-                const qualifyingAthletes = new Set();
-                for (const athlete of data) {
-                    if (qualifiedNations.size < quotaLimit && !qualifiedNations.has(athlete.Nation)) {
-                        qualifiedNations.add(athlete.Nation);
-                        qualifyingAthletes.add(athlete['Athlete Name']);
-                    }
-                    if (qualifiedNations.size >= quotaLimit) break;
-                }
-                return { athletes: qualifyingAthletes, nations: qualifiedNations };
+            function buildHeaderTemplate(classFilter) {
+                return ['Rank', 'Athlete Name', 'Nation', 'Overall OQS Points', 'Average Rank',
+                    ...getBinRanges(classFilter).map(bin => bin.key),
+                    `Top ${getUniqueNationsQuota(classFilter)} UN`,
+                    'OQS Race 1', 'OQS Race 2', 'OQS Race 3', 'OQS Race 4', 'OQS Race 5'];
             }
 
-            function getCrossQualifiers(data, quotaLimit) {
-                const qualifiedNations = new Set();
-                const qualifyingAthletes = new Set();
-                for (const athlete of data) {
-                    if (kayakQuotaWinners.has(athlete['Athlete Name'])) continue;
-                    if (qualifiedNations.size < quotaLimit && !qualifiedNations.has(athlete.Nation)) {
-                        qualifiedNations.add(athlete.Nation);
-                        qualifyingAthletes.add(athlete['Athlete Name']);
-                    }
-                }
-                return qualifyingAthletes;
-            }
-
-            function getC1Qualifiers(data, quotaLimit) {
-                const qualifiedNations = new Set();
-                const qualifyingAthletes = new Set();
-                for (const athlete of data) {
-                    if (kayakQuotaWinners.has(athlete['Athlete Name']) || crossQuotaWinners.has(athlete['Athlete Name'])) continue;
-                    if (qualifiedNations.size < quotaLimit && !qualifiedNations.has(athlete.Nation)) {
-                        qualifiedNations.add(athlete.Nation);
-                        qualifyingAthletes.add(athlete['Athlete Name']);
-                    }
-                }
-                return qualifyingAthletes;
-            }
-
-            function precomputeAllQualifiers() {
-                // Order: Kayak → Kayak Cross → Canoe
-                const k1mRankings = calculateOQSData('K1M');
-                const k1wRankings = calculateOQSData('K1W');
-                const k1mResults = getQualifiersAndNations(k1mRankings, quotas.kayak);
-                const k1wResults = getQualifiersAndNations(k1wRankings, quotas.kayak);
-                kayakQuotaWinners = new Set([...k1mResults.athletes, ...k1wResults.athletes]);
-
-                const mcslxRankings = calculateOQSData('MCSLX');
-                const wcslxRankings = calculateOQSData('WCSLX');
-                crossQuotaWinners = new Set([...getCrossQualifiers(mcslxRankings, quotas.cross), ...getCrossQualifiers(wcslxRankings, quotas.cross)]);
-
-                const c1mRankings = calculateOQSData('C1M');
-                const c1wRankings = calculateOQSData('C1W');
-                canoeQuotaWinners = new Set([...getC1Qualifiers(c1mRankings, quotas.canoe), ...getC1Qualifiers(c1wRankings, quotas.canoe)]);
-            }
-
-            function getFinalQuotaAllocation(data, quotaLimit, selectedClass) {
+            // The single allocation routine, used both to precompute the earlier classes and
+            // to drive the highlighting of the class on screen — so the two can never drift.
+            // Walks the ranking in order, giving each nation at most one place.
+            //
+            // `alreadyQualified` holds athleteKey()s that won a place in an earlier class.
+            // Such an athlete is marked "skipped" only when a place was genuinely open to
+            // them at that point in the list; their nation is left unclaimed, so it passes
+            // to the next eligible athlete from that nation.
+            function allocateQuota(rankedData, quotaLimit, alreadyQualified) {
                 const qualifiedNations = new Set();
                 const qualifyingAthletes = new Set();
                 const skippedQualifiers = new Set();
 
-                if (['K1M', 'K1W'].includes(selectedClass)) {
-                    for (const athlete of data) {
-                        if (qualifiedNations.size < quotaLimit && !qualifiedNations.has(athlete.Nation)) {
-                            qualifiedNations.add(athlete.Nation);
-                            qualifyingAthletes.add(athlete['Athlete Name']);
-                        }
+                for (const athlete of rankedData) {
+                    if (qualifiedNations.size >= quotaLimit) break;
+                    if (qualifiedNations.has(athlete.Nation)) continue;
+
+                    const key = athleteKey(athlete['Athlete Name'], athlete.Nation);
+                    if (alreadyQualified && alreadyQualified.has(key)) {
+                        skippedQualifiers.add(key);
+                        continue;
                     }
-                } else if (['C1M', 'C1W'].includes(selectedClass)) {
-                    for (const athlete of data) {
-                        if (kayakQuotaWinners.has(athlete['Athlete Name']) || crossQuotaWinners.has(athlete['Athlete Name'])) {
-                            skippedQualifiers.add(athlete['Athlete Name']);
-                            continue;
-                        }
-                        if (qualifiedNations.size < quotaLimit && !qualifiedNations.has(athlete.Nation)) {
-                            qualifiedNations.add(athlete.Nation);
-                            qualifyingAthletes.add(athlete['Athlete Name']);
-                        }
-                    }
-                } else if (['MCSLX', 'WCSLX'].includes(selectedClass)) {
-                    const qualifiedCrossNations = new Set();
-                    for (const athlete of data) {
-                        if (kayakQuotaWinners.has(athlete['Athlete Name'])) {
-                            skippedQualifiers.add(athlete['Athlete Name']);
-                            continue;
-                        }
-                        if (qualifiedCrossNations.size < quotaLimit && !qualifiedCrossNations.has(athlete.Nation)) {
-                            qualifiedCrossNations.add(athlete.Nation);
-                            qualifyingAthletes.add(athlete['Athlete Name']);
-                        }
-                    }
+
+                    qualifiedNations.add(athlete.Nation);
+                    qualifyingAthletes.add(key);
                 }
-                return { qualifyingAthletes, skippedQualifiers };
+                return { qualifyingAthletes, skippedQualifiers, qualifiedNations };
+            }
+
+            function getSkipSetForClass(selectedClass) {
+                if (CANOE_CLASSES.includes(selectedClass)) return new Set([...kayakQuotaWinners, ...crossQuotaWinners]);
+                if (CROSS_CLASSES.includes(selectedClass)) return kayakQuotaWinners;
+                return null; // Kayak qualifies first, so nobody can already hold a place.
+            }
+
+            function precomputeAllQualifiers() {
+                // Order: Kayak → Kayak Cross → Canoe. Canoe is last, so its winners are
+                // never needed as a skip set and are not tracked.
+                kayakQuotaWinners = new Set(KAYAK_CLASSES.flatMap(cls =>
+                    [...allocateQuota(calculateOQSData(cls), quotas.kayak, null).qualifyingAthletes]));
+
+                crossQuotaWinners = new Set(CROSS_CLASSES.flatMap(cls =>
+                    [...allocateQuota(calculateOQSData(cls), quotas.cross, kayakQuotaWinners).qualifyingAthletes]));
             }
 
             function renderTable(dataToRender) {
@@ -409,6 +505,7 @@
                 dataToRender.forEach(row => {
                     const tr = document.createElement('tr');
                     tr.className = "hover:bg-gray-700 transition-colors duration-150";
+                    const key = athleteKey(row['Athlete Name'], row['Nation']);
                     currentHeaders.forEach(header => {
                         const td = document.createElement('td');
                         td.className = "px-6 py-4 whitespace-nowrap text-sm text-gray-300";
@@ -416,9 +513,9 @@
                         if (header === 'Athlete Name' || header === 'Rank') {
                              td.classList.add('font-bold', 'text-white');
                         }
-                        if (header === 'Nation' && currentQualifyingAthletes.has(row['Athlete Name'])) {
+                        if (header === 'Nation' && currentQualifyingAthletes.has(key)) {
                             td.classList.add('bg-green-900', 'text-green-100', 'font-bold', 'rounded-sm');
-                        } else if (header === 'Nation' && currentSkippedAthletes.has(row['Athlete Name'])) {
+                        } else if (header === 'Nation' && currentSkippedAthletes.has(key)) {
                             td.classList.add('bg-yellow-800', 'text-yellow-100', 'font-bold', 'rounded-sm');
                         }
                         tr.appendChild(td);
@@ -441,22 +538,43 @@
                     tr.appendChild(th);
                 });
                 tableHead.appendChild(tr);
+                updateSortIndicators();
             }
-            
+
+            function updateSortIndicators() {
+                tableHead.querySelectorAll('th').forEach(th => {
+                    const direction = sortState[th.dataset.header];
+                    th.classList.toggle('sort-asc', direction === 'asc');
+                    th.classList.toggle('sort-desc', direction === 'desc');
+                });
+            }
+
+            // Columns displayed rounded but sorted on their underlying precise value.
+            const SORT_KEY_OVERRIDES = { 'Average Rank': '_avgRankExact' };
+
             function handleSort(columnHeader) {
                 const currentDirection = sortState[columnHeader];
                 const newDirection = currentDirection === 'asc' ? 'desc' : 'asc';
                 sortState = { [columnHeader]: newDirection };
+                const factor = newDirection === 'asc' ? 1 : -1;
+                const sortKey = SORT_KEY_OVERRIDES[columnHeader] || columnHeader;
+
+                // Decided per column, not per pair: "2024 Ivrea World Cup 4 (Rank 2)" parses
+                // as a number under parseFloat, which would make the comparator inconsistent.
+                const numericColumn = processedData.every(row => {
+                    const value = row[sortKey];
+                    return value !== '' && value !== null && value !== undefined && Number.isFinite(Number(value));
+                });
+
                 processedData.sort((a, b) => {
-                    const valA = a[columnHeader]; const valB = b[columnHeader];
-                    const isNumeric = !isNaN(parseFloat(valA)) && !isNaN(parseFloat(valB));
-                    if (isNumeric) {
-                        return newDirection === 'asc' ? parseFloat(valA) - parseFloat(valB) : parseFloat(valB) - parseFloat(valA);
-                    } else {
-                        return newDirection === 'asc' ? String(valA).localeCompare(String(valB)) : String(valB).localeCompare(String(valA));
-                    }
+                    const primary = numericColumn
+                        ? Number(a[sortKey]) - Number(b[sortKey])
+                        : String(a[sortKey]).localeCompare(String(b[sortKey]));
+                    // OQS rank as the final tie-break keeps the order stable and repeatable.
+                    return (factor * primary) || (a.Rank - b.Rank);
                 });
                 filterAndRender();
+                updateSortIndicators();
             }
 
             function filterAndRender() {
@@ -476,27 +594,31 @@
             }
 
             function showDataView(selectedClass) {
+                if (rawData.length === 0) return;
+
                 activeClass = selectedClass;
                 const cycleText = activeDataset === '22/23' ? '2-Year Cycle (5/9)' : '2-Year Cycle (5/11)';
                 viewTitle.textContent = `${selectedClass} (${cycleText})`;
 
                 processedData = calculateOQSData(selectedClass);
-                const quotaLimit = ['K1M', 'K1W'].includes(selectedClass) ? quotas.kayak 
-                    : ['C1M', 'C1W'].includes(selectedClass) ? quotas.canoe 
-                    : quotas.cross;
-                
-                const allocation = getFinalQuotaAllocation(processedData, quotaLimit, selectedClass);
+                const allocation = allocateQuota(processedData, getQuotaLimit(selectedClass), getSkipSetForClass(selectedClass));
                 currentQualifyingAthletes = allocation.qualifyingAthletes;
                 currentSkippedAthletes = allocation.skippedQualifiers;
-                
-                currentHeaders = processedData.length > 0 ? Object.keys(processedData[0]) : ['Rank', 'Athlete Name', 'Nation', 'Overall OQS Points', 'Average Rank', 'Top 3', 'Top 6', 'Top 12', 'Top 20', 'OQS Race 1', 'OQS Race 2', 'OQS Race 3', 'OQS Race 4', 'OQS Race 5'];
+
+                // "_"-prefixed keys are internal sort helpers: excluded here so they never
+                // reach the header row, the cells or the search index.
+                currentHeaders = processedData.length > 0
+                    ? Object.keys(processedData[0]).filter(key => !key.startsWith('_'))
+                    : buildHeaderTemplate(selectedClass);
                 sortState = { 'Overall OQS Points': 'desc' };
+                // A filter left over from the previous class would silently hide rows.
+                searchInput.value = '';
                 renderHeaders();
                 filterAndRender();
                 dataView.classList.remove('hidden');
                 document.querySelectorAll('.class-tile').forEach(btn => btn.classList.toggle('active', btn.dataset.class === selectedClass));
             }
-            
+
             async function fetchData(url) {
                 try {
                     const response = await fetch(url);
@@ -505,11 +627,21 @@
                     loadData(csvText);
                 } catch (error) {
                     console.error('Failed to fetch CSV data from GitHub:', error);
+                    // Clear everything: leaving the previous cycle's table on screen under
+                    // the newly selected dataset's label would misreport the numbers.
+                    rawData = [];
+                    processedData = [];
+                    activeClass = null;
+                    kayakQuotaWinners = new Set();
+                    crossQuotaWinners = new Set();
+                    dataView.classList.add('hidden');
+                    setClassTilesEnabled(false);
+                    document.querySelectorAll('.class-tile').forEach(btn => btn.classList.remove('active'));
                     headerSubtitle.textContent = 'Error: Could not load data from GitHub.';
                     headerSubtitle.classList.add('text-red-400');
                 }
             }
-            
+
             // --- Event Listeners Setup ---
             datasetSelectionView.addEventListener('click', (e) => {
                 const datasetBtn = e.target.closest('.dataset-btn');
@@ -519,12 +651,15 @@
             });
 
             classSelectionView.addEventListener('click', (e) => {
-                if(e.target.matches('button.class-tile')) {
-                    showDataView(e.target.dataset.class);
+                const classBtn = e.target.closest('button.class-tile');
+                if (classBtn && !classBtn.disabled) {
+                    showDataView(classBtn.dataset.class);
                 }
             });
 
             searchInput.addEventListener('input', filterAndRender);
+
+            setClassTilesEnabled(false);
         });
     </script>
 </body>
