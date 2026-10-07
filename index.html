@@ -73,7 +73,7 @@
             <!-- Step 1: Dataset Selection -->
             <div id="dataset-selection" class="mb-8">
                 <h2 class="text-xl font-semibold text-white mb-4">Step 1: Choose Dataset</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <button class="dataset-btn bg-indigo-700 hover:bg-indigo-600 text-white p-6 rounded-lg text-lg text-left" data-dataset="22/23">
                         <span class="font-bold text-2xl">2022-2023 Cycle</span>
                         <span class="block text-sm text-gray-300 mt-1">Best 5 of 9 eligible races.</span>
@@ -82,6 +82,40 @@
                         <span class="font-bold text-2xl">2024-2025 Cycle</span>
                         <span class="block text-sm text-gray-300 mt-1">Best 5 of 11 eligible races.</span>
                     </button>
+                    <button class="dataset-btn bg-emerald-700 hover:bg-emerald-600 text-white p-6 rounded-lg text-lg text-left" data-dataset="benchmarks">
+                        <span class="font-bold text-2xl">Quota Benchmarks</span>
+                        <span class="block text-sm text-gray-300 mt-1">What it takes to win a place in each class, from both cycles.</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Benchmarks View -->
+            <div id="benchmark-view" class="hidden">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+                    <h2 class="text-2xl font-bold text-white">What It Takes: Quota Benchmarks by Class</h2>
+                    <div class="flex gap-2">
+                        <button id="export-csv" class="bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold py-2 px-4 rounded-md disabled:opacity-40 disabled:cursor-not-allowed" disabled>Download CSV</button>
+                        <button id="export-json" class="bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold py-2 px-4 rounded-md disabled:opacity-40 disabled:cursor-not-allowed" disabled>Download JSON</button>
+                    </div>
+                </div>
+                <div class="bg-gray-700/50 p-4 rounded-lg mb-6 text-sm text-gray-300 space-y-2">
+                    <p>Each card shows the best-5 OQS total needed for a quota place, four ways:</p>
+                    <ul class="list-disc pl-5 space-y-1 text-gray-400">
+                        <li><span class="text-gray-200 font-semibold">Lowest qualifier 22/23 and 24/25:</span> the weakest athlete who actually won a place under the ICF proposal, with their five counting placings and the first athlete who missed out.</li>
+                        <li><span class="text-gray-200 font-semibold">Simulated typical (P50) and safe (P80):</span> each cycle is replayed <span id="bench-sim-count">thousands of</span> times with its races drawn at random (with replacement), and the full allocation is re-run each time. A total at the P80 level would have won a place in 80% of simulated cycles.</li>
+                        <li><span class="text-gray-200 font-semibold">Ways to get there:</span> combinations of five placings that reach the total even if every result is at the bottom of its band (e.g. every &quot;Top 5&quot; scored as 5th). The most consistent routes are listed first.</li>
+                    </ul>
+                </div>
+                <p id="benchmark-status" class="text-gray-400 mb-4"></p>
+                <div id="benchmark-cards" class="grid grid-cols-1 xl:grid-cols-2 gap-6"></div>
+                <div class="bg-gray-700/50 p-4 rounded-lg mt-6 text-sm text-gray-400">
+                    <p class="font-semibold text-gray-300 mb-2">Assumptions</p>
+                    <ul class="list-disc pl-5 space-y-1">
+                        <li>ICF proposal quotas (Kayak 6, Canoe 10, Kayak Cross 3), one place per nation, best 5 results counted. Allocation runs Kayak → Kayak Cross → Canoe, and an athlete who already holds a place is skipped.</li>
+                        <li>Benchmarks assume the athlete is their nation&apos;s top-ranked athlete. For athletes from strong nations, the real bar is often beating a team-mate, not the cut-off.</li>
+                        <li>Only two cycles of results exist. The simulation shows how much the cut-off moves with the races drawn, but it cannot predict a shift in the overall standard of the field.</li>
+                        <li>Continental, host-nation and universality places are not modelled.</li>
+                    </ul>
                 </div>
             </div>
 
@@ -155,6 +189,11 @@
             const dataView = document.getElementById('data-view');
             const viewTitle = document.getElementById('view-title');
             const headerSubtitle = document.getElementById('header-subtitle');
+            const benchmarkView = document.getElementById('benchmark-view');
+            const benchmarkCards = document.getElementById('benchmark-cards');
+            const benchmarkStatus = document.getElementById('benchmark-status');
+            const exportCsvBtn = document.getElementById('export-csv');
+            const exportJsonBtn = document.getElementById('export-json');
 
             // --- DATA CONFIGURATION ---
             const csvUrls = {
@@ -170,6 +209,7 @@
             const KAYAK_CLASSES = ['K1M', 'K1W'];
             const CANOE_CLASSES = ['C1M', 'C1W'];
             const CROSS_CLASSES = ['MCSLX', 'WCSLX'];
+            const ALL_CLASSES = [...KAYAK_CLASSES, ...CANOE_CLASSES, ...CROSS_CLASSES];
             const RESULTS_COUNTED = 5;
 
             function getUniqueNationsQuota(classFilter) {
@@ -205,6 +245,9 @@
             let crossQuotaWinners = new Set();
 
             let sortState = {};
+            // Bumped on every cycle fetch and on opening the benchmarks, so a slow
+            // response can never overwrite whatever the user selected after it.
+            let fetchGeneration = 0;
 
             // --- HELPERS ---
 
@@ -248,8 +291,27 @@
             }
 
             function selectDataset(dataset) {
-                activeDataset = dataset;
                 document.querySelectorAll('.dataset-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.dataset === dataset));
+
+                if (dataset === 'benchmarks') {
+                    // Any cycle fetch still in flight must not land on top of this view.
+                    fetchGeneration++;
+                    activeDataset = '';
+                    activeClass = null;
+                    rawData = [];
+                    proposalSelectionView.classList.add('hidden');
+                    classSelectionView.classList.add('hidden');
+                    dataView.classList.add('hidden');
+                    document.querySelectorAll('.class-tile').forEach(btn => btn.classList.remove('active'));
+                    headerSubtitle.classList.remove('text-red-400');
+                    headerSubtitle.textContent = 'Quota benchmarks across the 2022-2023 and 2024-2025 cycles.';
+                    benchmarkView.classList.remove('hidden');
+                    showBenchmarks();
+                    return;
+                }
+
+                activeDataset = dataset;
+                benchmarkView.classList.add('hidden');
 
                 // The tiles stay inert until the fetch lands, otherwise an early click
                 // renders an empty table and highlights against the previous cycle's quotas.
@@ -262,14 +324,18 @@
                 classSelectionView.classList.remove('hidden');
             }
 
+            // Drop DNS/DNF rows ("-" rank, "#N/A" points). They score nothing, so totals
+            // are unaffected, and keeping them would put NaN into the rankings, the
+            // averages and the rank bands.
+            function scoringRows(parsed) {
+                return parsed.filter(row => row.Class && row['Athlete Name']
+                    && toInt(row['OQS Points']) !== null && toInt(row['Overall Rank']) !== null);
+            }
+
             function loadData(csvText) {
                 try {
                     const parsed = parseCSV(csvText);
-                    // Drop DNS/DNF rows ("-" rank, "#N/A" points). They score nothing, so
-                    // totals are unaffected, and keeping them would put NaN into the
-                    // rankings, the averages and the rank bands.
-                    rawData = parsed.filter(row => row.Class && row['Athlete Name']
-                        && toInt(row['OQS Points']) !== null && toInt(row['Overall Rank']) !== null);
+                    rawData = scoringRows(parsed);
                     const excluded = parsed.length - rawData.length;
 
                     headerSubtitle.classList.remove('text-red-400');
@@ -367,11 +433,10 @@
                 return achieved;
             }
 
-            function calculateOQSData(classFilter) {
-                // Always use full data for 2-year cycle
-                const classRows = rawData.filter(row => row.Class === classFilter);
-
-                // 1. Group results by athlete
+            // The ranking rule, shared by the class tables and the benchmark simulation so
+            // the two can never drift: best 5 results by OQS points, ties broken by the
+            // average finishing rank of those results, then by name.
+            function rankAthletes(classRows) {
                 const athletes = new Map();
                 classRows.forEach(row => {
                     const athleteName = row['Athlete Name'];
@@ -381,12 +446,7 @@
                     athletes.get(athleteName).results.push(row);
                 });
 
-                const topX = getUniqueNationsQuota(classFilter);
-                const topNationFinishes = findTopNationFinishes(classRows, topX);
-                const binRanges = getBinRanges(classFilter);
-
-                // 2. Calculate points (Always Best 5)
-                const calculated = [...athletes.entries()].map(([name, data]) => {
+                const ranked = [...athletes.entries()].map(([name, data]) => {
                     const sortedResults = [...data.results].sort((a, b) =>
                         descNullsLast(toInt(a['OQS Points']), toInt(b['OQS Points']))
                         || ascNullsLast(toInt(a['Overall Rank']), toInt(b['Overall Rank']))
@@ -399,6 +459,30 @@
                     // Kept unrounded: it is the tie-break for equal points, and rounding it
                     // collapsed dozens of distinct averages onto the same value.
                     const avgRankExact = topResults.length > 0 ? totalRank / topResults.length : 0;
+
+                    // 'Athlete Name' and 'Nation' match the table rows, so allocateQuota
+                    // accepts either shape.
+                    return { 'Athlete Name': name, 'Nation': data.nation, overallPoints, avgRankExact, topResults };
+                });
+
+                ranked.sort((a, b) =>
+                    descNullsLast(a.overallPoints, b.overallPoints)
+                    || ascNullsLast(a.avgRankExact, b.avgRankExact)
+                    || String(a['Athlete Name']).localeCompare(String(b['Athlete Name'])));
+                return ranked;
+            }
+
+            function calculateOQSData(classFilter, rows = rawData) {
+                // Always use full data for 2-year cycle
+                const classRows = rows.filter(row => row.Class === classFilter);
+
+                const topX = getUniqueNationsQuota(classFilter);
+                const topNationFinishes = findTopNationFinishes(classRows, topX);
+                const binRanges = getBinRanges(classFilter);
+
+                return rankAthletes(classRows).map((athlete, index) => {
+                    const name = athlete['Athlete Name'];
+                    const { topResults } = athlete;
 
                     const binCounts = {};
                     binRanges.forEach(({ key, min, max }) => {
@@ -415,32 +499,22 @@
                     const topNUNCount = finishes ? topResults.filter(r => finishes.has(r['Competition UID'])).length : 0;
 
                     return {
-                        name, nation: data.nation, overallPoints, avgRankExact, binCounts,
-                        topNUNCount, raceUIDsWithRank,
+                        'Rank': index + 1,
+                        'Athlete Name': name,
+                        'Nation': athlete.Nation,
+                        'Overall OQS Points': athlete.overallPoints,
+                        'Average Rank': Math.round(athlete.avgRankExact),
+                        // Displayed rounded, but sorted on the precise value: it is the
+                        // tie-break for equal points, so rounding it would collapse distinct
+                        // averages together. Keys prefixed "_" are hidden from the table.
+                        _avgRankExact: athlete.avgRankExact,
+                        ...binCounts,
+                        [`Top ${topX} UN`]: topNUNCount,
+                        'OQS Race 1': raceUIDsWithRank[0], 'OQS Race 2': raceUIDsWithRank[1],
+                        'OQS Race 3': raceUIDsWithRank[2], 'OQS Race 4': raceUIDsWithRank[3],
+                        'OQS Race 5': raceUIDsWithRank[4],
                     };
                 });
-
-                calculated.sort((a, b) =>
-                    descNullsLast(a.overallPoints, b.overallPoints)
-                    || ascNullsLast(a.avgRankExact, b.avgRankExact)
-                    || String(a.name).localeCompare(String(b.name)));
-
-                return calculated.map((athlete, index) => ({
-                    'Rank': index + 1,
-                    'Athlete Name': athlete.name,
-                    'Nation': athlete.nation,
-                    'Overall OQS Points': athlete.overallPoints,
-                    'Average Rank': Math.round(athlete.avgRankExact),
-                    // Displayed rounded, but sorted on the precise value: it is the
-                    // tie-break for equal points, so rounding it would collapse distinct
-                    // averages together. Keys prefixed "_" are hidden from the table.
-                    _avgRankExact: athlete.avgRankExact,
-                    ...athlete.binCounts,
-                    [`Top ${topX} UN`]: athlete.topNUNCount,
-                    'OQS Race 1': athlete.raceUIDsWithRank[0], 'OQS Race 2': athlete.raceUIDsWithRank[1],
-                    'OQS Race 3': athlete.raceUIDsWithRank[2], 'OQS Race 4': athlete.raceUIDsWithRank[3],
-                    'OQS Race 5': athlete.raceUIDsWithRank[4],
-                }));
             }
 
             function buildHeaderTemplate(classFilter) {
@@ -485,14 +559,34 @@
                 return null; // Kayak qualifies first, so nobody can already hold a place.
             }
 
-            function precomputeAllQualifiers() {
-                // Order: Kayak → Kayak Cross → Canoe. Canoe is last, so its winners are
-                // never needed as a skip set and are not tracked.
-                kayakQuotaWinners = new Set(KAYAK_CLASSES.flatMap(cls =>
-                    [...allocateQuota(calculateOQSData(cls), quotas.kayak, null).qualifyingAthletes]));
+            function groupByClass(rows) {
+                const byClass = new Map(ALL_CLASSES.map(cls => [cls, []]));
+                rows.forEach(row => { if (byClass.has(row.Class)) byClass.get(row.Class).push(row); });
+                return byClass;
+            }
 
-                crossQuotaWinners = new Set(CROSS_CLASSES.flatMap(cls =>
-                    [...allocateQuota(calculateOQSData(cls), quotas.cross, kayakQuotaWinners).qualifyingAthletes]));
+            // Runs the whole cycle's allocation in order: Kayak → Kayak Cross → Canoe.
+            // `rowsByClass` maps each class to its results. Returns, per class, the
+            // ranking, the allocation and the skip set that applied to it.
+            function allocateCycle(rowsByClass) {
+                const byClass = new Map();
+                const run = (cls, skip) => {
+                    const ranked = rankAthletes(rowsByClass.get(cls) || []);
+                    const allocation = allocateQuota(ranked, getQuotaLimit(cls), skip);
+                    byClass.set(cls, { ranked, allocation, skip });
+                    return [...allocation.qualifyingAthletes];
+                };
+                const kayakWinners = new Set(KAYAK_CLASSES.flatMap(cls => run(cls, null)));
+                const crossWinners = new Set(CROSS_CLASSES.flatMap(cls => run(cls, kayakWinners)));
+                const canoeSkip = new Set([...kayakWinners, ...crossWinners]);
+                CANOE_CLASSES.forEach(cls => run(cls, canoeSkip));
+                return { byClass, kayakWinners, crossWinners };
+            }
+
+            function precomputeAllQualifiers() {
+                const cycle = allocateCycle(groupByClass(rawData));
+                kayakQuotaWinners = cycle.kayakWinners;
+                crossQuotaWinners = cycle.crossWinners;
             }
 
             function renderTable(dataToRender) {
@@ -620,12 +714,16 @@
             }
 
             async function fetchData(url) {
+                const generation = ++fetchGeneration;
                 try {
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`Network response was not ok`);
                     const csvText = await response.text();
+                    // A newer selection has replaced this one while it was in flight.
+                    if (generation !== fetchGeneration) return;
                     loadData(csvText);
                 } catch (error) {
+                    if (generation !== fetchGeneration) return;
                     console.error('Failed to fetch CSV data from GitHub:', error);
                     // Clear everything: leaving the previous cycle's table on screen under
                     // the newly selected dataset's label would misreport the numbers.
@@ -641,6 +739,364 @@
                     headerSubtitle.classList.add('text-red-400');
                 }
             }
+
+            // --- QUOTA BENCHMARKS ---
+            // What it takes to win a place in each class: the historical cut-off in each
+            // cycle, plus a simulated spread of cut-offs from replaying each cycle with its
+            // races resampled. Everything runs through allocateCycle(), so the benchmarks
+            // obey exactly the same rules as the class tables.
+
+            const SIMS_PER_CYCLE = 2000;
+            const SIM_SEED = 2028;
+            const TYPICAL_PERCENTILE = 0.5;
+            const SAFE_PERCENTILE = 0.8;
+            const SIM_CHUNK = 100; // sims between yields, so the page stays responsive
+
+            const CLASS_NAMES = {
+                K1M: "Men's Kayak", K1W: "Women's Kayak", C1M: "Men's Canoe", C1W: "Women's Canoe",
+                MCSLX: "Men's Kayak Cross", WCSLX: "Women's Kayak Cross",
+            };
+            // Placing bands used to describe a total. Cross follows its rounds: 4 = final,
+            // 8 = semi-final, 16 = quarter-final.
+            const BENCHMARK_BANDS = { slalom: [1, 3, 5, 8, 12, 20], cross: [1, 3, 4, 8, 12, 16] };
+            const EXPORT_BAND_PLACES = [1, 3, 4, 5, 8, 12, 16, 20];
+
+            let benchmarkResults = null;  // cached: the inputs never change within a session
+            let benchmarkRunning = false;
+
+            const classFamily = cls => (CROSS_CLASSES.includes(cls) ? 'cross' : 'slalom');
+            const bandLabel = place => (place === 1 ? 'Win' : `Top ${place}`);
+            const formatPoints = n => Math.round(n).toLocaleString('en-GB');
+
+            function ordinal(n) {
+                const tens = n % 100;
+                if (tens >= 11 && tens <= 13) return `${n}th`;
+                return `${n}${{ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th'}`;
+            }
+
+            function escapeHtml(value) {
+                return String(value).replace(/[&<>"']/g, ch =>
+                    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+            }
+
+            // Place → points for each class family, read from the data rather than
+            // hard-coded. The most common value at each rank wins, so a single mis-keyed
+            // row cannot distort the table.
+            function buildPointsTable(rows) {
+                const tallies = { slalom: new Map(), cross: new Map() };
+                rows.forEach(row => {
+                    const place = toInt(row['Overall Rank']);
+                    const points = toInt(row['OQS Points']);
+                    const byPlace = tallies[classFamily(row.Class)];
+                    if (!byPlace.has(place)) byPlace.set(place, new Map());
+                    const counts = byPlace.get(place);
+                    counts.set(points, (counts.get(points) || 0) + 1);
+                });
+                const table = {};
+                Object.entries(tallies).forEach(([family, byPlace]) => {
+                    table[family] = new Map([...byPlace.entries()].map(([place, counts]) =>
+                        [place, [...counts.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0]]));
+                });
+                return table;
+            }
+
+            // The lowest-ranked quota winner, and the first athlete below them who could
+            // still have taken a place (nation not yet qualified, not already qualified
+            // in an earlier class).
+            function findCutoff({ ranked, allocation, skip }) {
+                let lastIndex = -1;
+                ranked.forEach((athlete, i) => {
+                    if (allocation.qualifyingAthletes.has(athleteKey(athlete['Athlete Name'], athlete.Nation))) lastIndex = i;
+                });
+                if (lastIndex < 0) return { last: null, firstOut: null };
+                const firstOut = ranked.slice(lastIndex + 1).find(athlete =>
+                    !allocation.qualifiedNations.has(athlete.Nation)
+                    && !(skip && skip.has(athleteKey(athlete['Athlete Name'], athlete.Nation)))) || null;
+                return { last: ranked[lastIndex], firstOut };
+            }
+
+            // Small seeded PRNG so the simulated numbers are identical on every run.
+            function mulberry32(seed) {
+                return function () {
+                    let t = (seed += 0x6D2B79F5);
+                    t = Math.imul(t ^ (t >>> 15), t | 1);
+                    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+                    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+                };
+            }
+
+            // Year + competition identifies an event across all six classes, even where
+            // the UID differs (the "Ausgburg" Cross races, Paris vs Vaires-sur-Marne).
+            const eventKey = row => `${row.Year} ${row.Competition}`;
+
+            // Replays a cycle `sims` times. Each replay draws as many events as the cycle
+            // had, at random with replacement, and gives every class the same draw so the
+            // cross-class skip rule still holds. Returns class → array of cut-off totals.
+            async function simulateCutoffs(rows, sims, rng, onProgress) {
+                const events = [...new Set(rows.map(eventKey))].sort();
+                const byClassEvent = new Map(ALL_CLASSES.map(cls => [cls, new Map(events.map(e => [e, []]))]));
+                rows.forEach(row => {
+                    if (byClassEvent.has(row.Class)) byClassEvent.get(row.Class).get(eventKey(row)).push(row);
+                });
+
+                const cutoffs = new Map(ALL_CLASSES.map(cls => [cls, []]));
+                for (let s = 0; s < sims; s++) {
+                    const draw = events.map(() => events[Math.floor(rng() * events.length)]);
+                    const rowsByClass = new Map(ALL_CLASSES.map(cls =>
+                        [cls, draw.flatMap(e => byClassEvent.get(cls).get(e))]));
+                    const { byClass } = allocateCycle(rowsByClass);
+                    ALL_CLASSES.forEach(cls => {
+                        const { last } = findCutoff(byClass.get(cls));
+                        if (last) cutoffs.get(cls).push(last.overallPoints);
+                    });
+                    if ((s + 1) % SIM_CHUNK === 0) {
+                        onProgress(s + 1);
+                        await new Promise(resolve => setTimeout(resolve, 0));
+                    }
+                }
+                return cutoffs;
+            }
+
+            // Nearest-rank percentile: always an actual simulated total.
+            function percentile(values, p) {
+                const sorted = [...values].sort((a, b) => a - b);
+                return sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)];
+            }
+
+            // The combinations of five placings that reach `total` even when every result
+            // is scored at the bottom of its band. Only minimal combinations are kept
+            // (dropping any one result a band would fall short), most consistent first.
+            function routesTo(total, pointsByPlace, bands, max = 3) {
+                const worst = bands.map(place => pointsByPlace.get(place) || 0);
+                const score = counts => counts.reduce((sum, n, i) => sum + n * worst[i], 0);
+
+                const combos = [];
+                const build = (i, left, counts) => {
+                    if (i === bands.length - 1) { combos.push([...counts, left]); return; }
+                    for (let n = left; n >= 0; n--) build(i + 1, left - n, [...counts, n]);
+                };
+                build(0, RESULTS_COUNTED, []);
+
+                const minimal = combos.filter(counts => score(counts) >= total && counts.every((n, i) => {
+                    if (n === 0 || i === bands.length - 1) return true;
+                    const weaker = [...counts];
+                    weaker[i]--; weaker[i + 1]++;
+                    return score(weaker) < total;
+                }));
+
+                // Consistency = low spread of the band positions across the five results.
+                const spread = counts => {
+                    const positions = counts.flatMap((n, i) => Array(n).fill(i));
+                    const mean = positions.reduce((a, b) => a + b, 0) / positions.length;
+                    return positions.reduce((sum, x) => sum + (x - mean) ** 2, 0);
+                };
+                return minimal
+                    .sort((a, b) => spread(a) - spread(b) || score(a) - score(b))
+                    .slice(0, max)
+                    .map(counts => ({
+                        counts: Object.fromEntries(bands.map((place, i) => [place, counts[i]])),
+                        points: score(counts),
+                        text: counts.map((n, i) => (n ? `${n}× ${bandLabel(bands[i])}` : null)).filter(Boolean).join(' + '),
+                    }));
+            }
+
+            // Turns a total into the average result it implies and the routes to it.
+            function describeTotal(total, cls, pointsTable) {
+                const pointsByPlace = pointsTable[classFamily(cls)];
+                const avgPerResult = total / RESULTS_COUNTED;
+                // The lowest place that still scores at least the average.
+                let equivalentPlace = null;
+                [...pointsByPlace.keys()].sort((a, b) => a - b).forEach(place => {
+                    if (pointsByPlace.get(place) >= avgPerResult) equivalentPlace = place;
+                });
+                let averageText;
+                if (equivalentPlace === null) {
+                    averageText = 'more than a win per race: not reachable';
+                } else if (pointsByPlace.get(equivalentPlace) === avgPerResult) {
+                    averageText = `${ordinal(equivalentPlace)} in every counting race`;
+                } else {
+                    averageText = `between ${ordinal(equivalentPlace)} and ${ordinal(equivalentPlace + 1)} in every counting race`;
+                }
+                return {
+                    total, avgPerResult, equivalentPlace, averageText,
+                    routes: routesTo(total, pointsByPlace, BENCHMARK_BANDS[classFamily(cls)]),
+                };
+            }
+
+            async function fetchCycleRows() {
+                const entries = await Promise.all(Object.entries(csvUrls).map(async ([cycle, url]) => {
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error(`Could not load ${cycle}`);
+                    return [cycle, scoringRows(parseCSV(await response.text()))];
+                }));
+                return Object.fromEntries(entries);
+            }
+
+            async function computeBenchmarks(onStatus) {
+                onStatus('Fetching both cycles...');
+                const cycles = await fetchCycleRows();
+                const pointsTable = buildPointsTable(Object.values(cycles).flat());
+
+                const historical = {};
+                Object.entries(cycles).forEach(([cycle, rows]) => {
+                    historical[cycle] = allocateCycle(groupByClass(rows)).byClass;
+                });
+
+                const pooled = new Map(ALL_CLASSES.map(cls => [cls, []]));
+                const cycleNames = Object.keys(cycles);
+                const totalSims = SIMS_PER_CYCLE * cycleNames.length;
+                for (const [i, cycle] of cycleNames.entries()) {
+                    const cutoffs = await simulateCutoffs(cycles[cycle], SIMS_PER_CYCLE, mulberry32(SIM_SEED + i), done =>
+                        onStatus(`Simulating cycles... ${Math.round(100 * (i * SIMS_PER_CYCLE + done) / totalSims)}%`));
+                    ALL_CLASSES.forEach(cls => pooled.get(cls).push(...cutoffs.get(cls)));
+                }
+
+                const classes = ALL_CLASSES.map(cls => {
+                    const measures = cycleNames.map(cycle => {
+                        const { last, firstOut } = findCutoff(historical[cycle].get(cls));
+                        return {
+                            key: `hist_min_${cycle.replace('/', '')}`,
+                            label: `Lowest qualifier ${cycle}`,
+                            ...describeTotal(last.overallPoints, cls, pointsTable),
+                            reference: {
+                                athlete: last['Athlete Name'], nation: last.Nation,
+                                placings: last.topResults.map(r => toInt(r['Overall Rank'])),
+                            },
+                            firstOut: firstOut
+                                ? { athlete: firstOut['Athlete Name'], nation: firstOut.Nation, total: firstOut.overallPoints }
+                                : null,
+                        };
+                    });
+                    measures.push(
+                        { key: 'sim_p50', label: 'Simulated typical (P50)', ...describeTotal(percentile(pooled.get(cls), TYPICAL_PERCENTILE), cls, pointsTable) },
+                        { key: 'sim_p80', label: 'Simulated safe (P80)', ...describeTotal(percentile(pooled.get(cls), SAFE_PERCENTILE), cls, pointsTable) },
+                    );
+                    return { cls, name: CLASS_NAMES[cls], quota: getQuotaLimit(cls), family: classFamily(cls), measures };
+                });
+
+                return {
+                    generated: new Date().toISOString(),
+                    method: {
+                        simsPerCycle: SIMS_PER_CYCLE, seed: SIM_SEED,
+                        typicalPercentile: TYPICAL_PERCENTILE, safePercentile: SAFE_PERCENTILE,
+                        resultsCounted: RESULTS_COUNTED, quotas: { ...quotas }, bands: BENCHMARK_BANDS,
+                    },
+                    classes,
+                };
+            }
+
+            function renderBenchmarks(results) {
+                const routesHtml = routes => (routes.length
+                    ? `<ul class="space-y-1">${routes.map((route, i) => `<li class="${i === 0 ? 'text-white font-semibold' : 'text-gray-300'}">${escapeHtml(route.text)}</li>`).join('')}</ul>`
+                    : '<p class="text-gray-500">No combination of five results reaches this.</p>');
+
+                benchmarkCards.innerHTML = results.classes.map(({ cls, name, quota, measures }) => {
+                    const safe = measures.find(m => m.key === 'sim_p80');
+                    const rows = measures.map(m => {
+                        const isSim = m.key.startsWith('sim_');
+                        const detail = m.reference
+                            ? `<p class="text-xs text-gray-400 mt-1">${escapeHtml(m.reference.athlete)} (${escapeHtml(m.reference.nation)}): ${m.reference.placings.map(ordinal).join(', ')}</p>`
+                              + (m.firstOut ? `<p class="text-xs text-gray-500">First out: ${escapeHtml(m.firstOut.athlete)} (${escapeHtml(m.firstOut.nation)}), ${formatPoints(m.firstOut.total)}</p>` : '')
+                            : '';
+                        return `
+                            <div class="grid grid-cols-1 sm:grid-cols-[11rem_1fr] gap-x-4 gap-y-1 py-3 border-t border-gray-700">
+                                <div>
+                                    <p class="text-xs uppercase tracking-wider ${isSim ? 'text-emerald-400' : 'text-gray-400'}">${escapeHtml(m.label)}</p>
+                                    <p class="text-2xl font-bold text-white">${formatPoints(m.total)}</p>
+                                    <p class="text-xs text-gray-400">≈ ${escapeHtml(m.averageText)}</p>
+                                    ${detail}
+                                </div>
+                                <div class="text-sm">
+                                    <p class="text-xs uppercase tracking-wider text-gray-500 mb-1">Ways to get there</p>
+                                    ${routesHtml(m.routes)}
+                                </div>
+                            </div>`;
+                    }).join('');
+                    return `
+                        <section class="bg-gray-900 border border-gray-700 rounded-lg p-5">
+                            <div class="flex flex-wrap items-baseline justify-between gap-2 mb-1">
+                                <h3 class="text-xl font-bold text-white">${escapeHtml(name)} <span class="text-gray-400 font-medium">${cls}</span></h3>
+                                <span class="text-sm text-gray-400">${quota} quota places</span>
+                            </div>
+                            <p class="text-sm text-gray-300 mb-3">Safe target: <span class="font-bold text-emerald-400">${formatPoints(safe.total)} points</span> from your best ${RESULTS_COUNTED} results, e.g. ${escapeHtml(safe.routes[0] ? safe.routes[0].text : 'n/a')}.</p>
+                            ${rows}
+                        </section>`;
+                }).join('');
+            }
+
+            function benchmarkCsv(results) {
+                const header = ['class', 'class_name', 'quota_places', 'measure', 'measure_label', 'total_points',
+                    'avg_points_per_result', 'equivalent_place', 'average_description',
+                    'reference_athlete', 'reference_nation', 'reference_placings',
+                    'first_out_athlete', 'first_out_nation', 'first_out_points',
+                    'route_1', 'route_2', 'route_3',
+                    ...EXPORT_BAND_PLACES.map(place => `route_1_${bandLabel(place).toLowerCase().replace(' ', '')}`)];
+                const cell = value => {
+                    const text = value === null || value === undefined ? '' : String(value);
+                    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+                };
+                const lines = [header.join(',')];
+                results.classes.forEach(({ cls, name, quota, family, measures }) => {
+                    measures.forEach(m => {
+                        const route1 = m.routes[0];
+                        lines.push([
+                            cls, name, quota, m.key, m.label, m.total,
+                            Math.round(m.avgPerResult * 10) / 10, m.equivalentPlace, m.averageText,
+                            m.reference?.athlete, m.reference?.nation, m.reference?.placings.join(' '),
+                            m.firstOut?.athlete, m.firstOut?.nation, m.firstOut?.total,
+                            m.routes[0]?.text, m.routes[1]?.text, m.routes[2]?.text,
+                            // Blank where the band does not exist for this class family.
+                            ...EXPORT_BAND_PLACES.map(place =>
+                                BENCHMARK_BANDS[family].includes(place) && route1 ? route1.counts[place] : ''),
+                        ].map(cell).join(','));
+                    });
+                });
+                return lines.join('\n') + '\n';
+            }
+
+            function downloadFile(filename, text, type) {
+                const url = URL.createObjectURL(new Blob([text], { type }));
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                URL.revokeObjectURL(url);
+            }
+
+            async function showBenchmarks() {
+                if (benchmarkResults) {
+                    renderBenchmarks(benchmarkResults);
+                    return;
+                }
+                if (benchmarkRunning) return;
+                benchmarkRunning = true;
+                benchmarkStatus.classList.remove('hidden', 'text-red-400');
+                try {
+                    benchmarkResults = await computeBenchmarks(text => { benchmarkStatus.textContent = text; });
+                    renderBenchmarks(benchmarkResults);
+                    benchmarkStatus.classList.add('hidden');
+                    exportCsvBtn.disabled = false;
+                    exportJsonBtn.disabled = false;
+                } catch (error) {
+                    console.error('Benchmark calculation failed:', error);
+                    benchmarkStatus.textContent = 'Error: could not build the benchmarks (data failed to load from GitHub).';
+                    benchmarkStatus.classList.add('text-red-400');
+                } finally {
+                    benchmarkRunning = false;
+                }
+            }
+
+            document.getElementById('bench-sim-count').textContent = (SIMS_PER_CYCLE).toLocaleString('en-GB');
+
+            exportCsvBtn.addEventListener('click', () => {
+                // The BOM makes Excel read the file as UTF-8, so "×" survives.
+                if (benchmarkResults) downloadFile('oqs-quota-benchmarks.csv', '﻿' + benchmarkCsv(benchmarkResults), 'text/csv');
+            });
+            exportJsonBtn.addEventListener('click', () => {
+                if (benchmarkResults) downloadFile('oqs-quota-benchmarks.json', JSON.stringify(benchmarkResults, null, 2), 'application/json');
+            });
 
             // --- Event Listeners Setup ---
             datasetSelectionView.addEventListener('click', (e) => {
