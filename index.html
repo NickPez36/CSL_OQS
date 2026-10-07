@@ -99,15 +99,15 @@
                     </div>
                 </div>
                 <div class="bg-gray-700/50 p-4 rounded-lg mb-6 text-sm text-gray-300 space-y-2">
-                    <p>Each card shows the best-5 OQS total needed for a quota place, four ways:</p>
+                    <p>The best-5 OQS total needed for a quota place in every class, in three sections:</p>
                     <ul class="list-disc pl-5 space-y-1 text-gray-400">
-                        <li><span class="text-gray-200 font-semibold">Lowest qualifier 22/23 and 24/25:</span> the weakest athlete who actually won a place under the ICF proposal, with their five counting placings and the first athlete who missed out.</li>
+                        <li><span class="text-gray-200 font-semibold">Lowest qualifier (real data):</span> the lowest total that actually won a place under the ICF proposal across the 22/23 and 24/25 cycles, with that athlete&apos;s five counting placings and the first athlete who missed out in the same cycle.</li>
                         <li><span class="text-gray-200 font-semibold">Simulated typical (P50) and safe (P80):</span> each cycle is replayed <span id="bench-sim-count">thousands of</span> times with its races drawn at random (with replacement), and the full allocation is re-run each time. A total at the P80 level would have won a place in 80% of simulated cycles.</li>
                         <li><span class="text-gray-200 font-semibold">Ways to get there:</span> combinations of five placings that reach the total even if every result is at the bottom of its band (e.g. every &quot;Top 5&quot; scored as 5th). The most consistent routes are listed first.</li>
                     </ul>
                 </div>
                 <p id="benchmark-status" class="text-gray-400 mb-4"></p>
-                <div id="benchmark-cards" class="grid grid-cols-1 xl:grid-cols-2 gap-6"></div>
+                <div id="benchmark-cards" class="space-y-10"></div>
                 <div class="bg-gray-700/50 p-4 rounded-lg mt-6 text-sm text-gray-400">
                     <p class="font-semibold text-gray-300 mb-2">Assumptions</p>
                     <ul class="list-disc pl-5 space-y-1">
@@ -952,21 +952,24 @@
                 }
 
                 const classes = ALL_CLASSES.map(cls => {
-                    const measures = cycleNames.map(cycle => {
-                        const { last, firstOut } = findCutoff(historical[cycle].get(cls));
-                        return {
-                            key: `hist_min_${cycle.replace('/', '')}`,
-                            label: `Lowest qualifier ${cycle}`,
-                            ...describeTotal(last.overallPoints, cls, pointsTable),
-                            reference: {
-                                athlete: last['Athlete Name'], nation: last.Nation,
-                                placings: last.topResults.map(r => toInt(r['Overall Rank'])),
-                            },
-                            firstOut: firstOut
-                                ? { athlete: firstOut['Athlete Name'], nation: firstOut.Nation, total: firstOut.overallPoints }
-                                : null,
-                        };
-                    });
+                    // The lowest qualifying total across both cycles. The earlier cycle
+                    // wins a tie, so the choice never depends on anything but the data.
+                    const cutoffs = cycleNames.map(cycle => ({ cycle, ...findCutoff(historical[cycle].get(cls)) }));
+                    const lowest = cutoffs.reduce((best, c) => (c.last.overallPoints < best.last.overallPoints ? c : best));
+                    const measures = [{
+                        key: 'lowest_qualifier',
+                        label: 'Lowest qualifier',
+                        ...describeTotal(lowest.last.overallPoints, cls, pointsTable),
+                        cycle: lowest.cycle,
+                        byCycle: Object.fromEntries(cutoffs.map(c => [c.cycle, c.last.overallPoints])),
+                        reference: {
+                            athlete: lowest.last['Athlete Name'], nation: lowest.last.Nation,
+                            placings: lowest.last.topResults.map(r => toInt(r['Overall Rank'])),
+                        },
+                        firstOut: lowest.firstOut
+                            ? { athlete: lowest.firstOut['Athlete Name'], nation: lowest.firstOut.Nation, total: lowest.firstOut.overallPoints }
+                            : null,
+                    }];
                     measures.push(
                         { key: 'sim_p50', label: 'Simulated typical (P50)', ...describeTotal(percentile(pooled.get(cls), TYPICAL_PERCENTILE), cls, pointsTable) },
                         { key: 'sim_p80', label: 'Simulated safe (P80)', ...describeTotal(percentile(pooled.get(cls), SAFE_PERCENTILE), cls, pointsTable) },
@@ -985,49 +988,71 @@
                 };
             }
 
+            const BENCHMARK_SECTIONS = [
+                {
+                    key: 'lowest_qualifier', title: 'Lowest qualifier', tag: 'Real data', accent: 'text-sky-400',
+                    blurb: 'The lowest total that actually won a quota place in each class, taken from whichever of the 22/23 and 24/25 cycles was lower.',
+                },
+                {
+                    key: 'sim_p50', title: 'Typical cut-off (P50)', tag: 'Simulation', accent: 'text-amber-400',
+                    blurb: 'Enough for a quota place in half of the simulated cycles: the middle of the range.',
+                },
+                {
+                    key: 'sim_p80', title: 'Safe cut-off (P80)', tag: 'Simulation', accent: 'text-emerald-400',
+                    blurb: 'Enough for a quota place in 80% of the simulated cycles: the target to aim for.',
+                },
+            ];
+
             function renderBenchmarks(results) {
                 const routesHtml = routes => (routes.length
                     ? `<ul class="space-y-1">${routes.map((route, i) => `<li class="${i === 0 ? 'text-white font-semibold' : 'text-gray-300'}">${escapeHtml(route.text)}</li>`).join('')}</ul>`
                     : '<p class="text-gray-500">No combination of five results reaches this.</p>');
 
-                benchmarkCards.innerHTML = results.classes.map(({ cls, name, quota, measures }) => {
-                    const safe = measures.find(m => m.key === 'sim_p80');
-                    const rows = measures.map(m => {
-                        const isSim = m.key.startsWith('sim_');
-                        const detail = m.reference
-                            ? `<p class="text-xs text-gray-400 mt-1">${escapeHtml(m.reference.athlete)} (${escapeHtml(m.reference.nation)}): ${m.reference.placings.map(ordinal).join(', ')}</p>`
-                              + (m.firstOut ? `<p class="text-xs text-gray-500">First out: ${escapeHtml(m.firstOut.athlete)} (${escapeHtml(m.firstOut.nation)}), ${formatPoints(m.firstOut.total)}</p>` : '')
-                            : '';
-                        return `
-                            <div class="grid grid-cols-1 sm:grid-cols-[11rem_1fr] gap-x-4 gap-y-1 py-3 border-t border-gray-700">
-                                <div>
-                                    <p class="text-xs uppercase tracking-wider ${isSim ? 'text-emerald-400' : 'text-gray-400'}">${escapeHtml(m.label)}</p>
-                                    <p class="text-2xl font-bold text-white">${formatPoints(m.total)}</p>
-                                    <p class="text-xs text-gray-400">≈ ${escapeHtml(m.averageText)}</p>
-                                    ${detail}
-                                </div>
-                                <div class="text-sm">
-                                    <p class="text-xs uppercase tracking-wider text-gray-500 mb-1">Ways to get there</p>
-                                    ${routesHtml(m.routes)}
-                                </div>
+                const tileHtml = ({ cls, name, quota }, m, accent) => {
+                    let detail = '';
+                    if (m.reference) {
+                        const others = Object.entries(m.byCycle).filter(([cycle]) => cycle !== m.cycle)
+                            .map(([cycle, total]) => `${cycle}: ${formatPoints(total)}`).join(' · ');
+                        detail = `
+                            <div class="text-xs mt-2 space-y-0.5">
+                                <p class="text-gray-300">${escapeHtml(m.reference.athlete)} (${escapeHtml(m.reference.nation)}), ${escapeHtml(m.cycle)}: ${m.reference.placings.map(ordinal).join(', ')}</p>
+                                ${m.firstOut ? `<p class="text-gray-500">First out: ${escapeHtml(m.firstOut.athlete)} (${escapeHtml(m.firstOut.nation)}), ${formatPoints(m.firstOut.total)}</p>` : ''}
+                                ${others ? `<p class="text-gray-500">Other cycle: ${escapeHtml(others)}</p>` : ''}
                             </div>`;
-                    }).join('');
+                    }
                     return `
-                        <section class="bg-gray-900 border border-gray-700 rounded-lg p-5">
-                            <div class="flex flex-wrap items-baseline justify-between gap-2 mb-1">
-                                <h3 class="text-xl font-bold text-white">${escapeHtml(name)} <span class="text-gray-400 font-medium">${cls}</span></h3>
-                                <span class="text-sm text-gray-400">${quota} quota places</span>
+                        <div class="bg-gray-900 border border-gray-700 rounded-lg p-4 flex flex-col">
+                            <div class="flex items-baseline justify-between gap-2">
+                                <h4 class="font-bold text-white">${escapeHtml(name)} <span class="text-gray-400 font-medium">${cls}</span></h4>
+                                <span class="text-xs text-gray-400 whitespace-nowrap">${quota} places</span>
                             </div>
-                            <p class="text-sm text-gray-300 mb-3">Safe target: <span class="font-bold text-emerald-400">${formatPoints(safe.total)} points</span> from your best ${RESULTS_COUNTED} results, e.g. ${escapeHtml(safe.routes[0] ? safe.routes[0].text : 'n/a')}.</p>
-                            ${rows}
-                        </section>`;
-                }).join('');
+                            <p class="text-3xl font-bold ${accent} mt-2">${formatPoints(m.total)}</p>
+                            <p class="text-xs text-gray-400">≈ ${escapeHtml(m.averageText)}</p>
+                            ${detail}
+                            <div class="text-sm mt-3 pt-3 border-t border-gray-700">
+                                <p class="text-xs uppercase tracking-wider text-gray-500 mb-1">Ways to get there</p>
+                                ${routesHtml(m.routes)}
+                            </div>
+                        </div>`;
+                };
+
+                benchmarkCards.innerHTML = BENCHMARK_SECTIONS.map(section => `
+                    <section>
+                        <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-1">
+                            <h3 class="text-xl font-bold text-white">${escapeHtml(section.title)}</h3>
+                            <span class="text-xs uppercase tracking-wider ${section.accent}">${escapeHtml(section.tag)}</span>
+                        </div>
+                        <p class="text-sm text-gray-400 mb-4">${escapeHtml(section.blurb)}</p>
+                        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                            ${results.classes.map(c => tileHtml(c, c.measures.find(m => m.key === section.key), section.accent)).join('')}
+                        </div>
+                    </section>`).join('');
             }
 
             function benchmarkCsv(results) {
                 const header = ['class', 'class_name', 'quota_places', 'measure', 'measure_label', 'total_points',
                     'avg_points_per_result', 'equivalent_place', 'average_description',
-                    'reference_athlete', 'reference_nation', 'reference_placings',
+                    'reference_cycle', 'reference_athlete', 'reference_nation', 'reference_placings', 'cycle_cutoffs',
                     'first_out_athlete', 'first_out_nation', 'first_out_points',
                     'route_1', 'route_2', 'route_3',
                     ...EXPORT_BAND_PLACES.map(place => `route_1_${bandLabel(place).toLowerCase().replace(' ', '')}`)];
@@ -1042,7 +1067,8 @@
                         lines.push([
                             cls, name, quota, m.key, m.label, m.total,
                             Math.round(m.avgPerResult * 10) / 10, m.equivalentPlace, m.averageText,
-                            m.reference?.athlete, m.reference?.nation, m.reference?.placings.join(' '),
+                            m.cycle, m.reference?.athlete, m.reference?.nation, m.reference?.placings.join(' '),
+                            m.byCycle && Object.entries(m.byCycle).map(([cycle, total]) => `${cycle}: ${total}`).join('; '),
                             m.firstOut?.athlete, m.firstOut?.nation, m.firstOut?.total,
                             m.routes[0]?.text, m.routes[1]?.text, m.routes[2]?.text,
                             // Blank where the band does not exist for this class family.
